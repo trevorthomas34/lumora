@@ -1,17 +1,19 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { BUSINESS_GOALS, BRAND_TONES } from "@/lib/constants";
 import { isDemoMode } from "@/lib/utils";
-import { ArrowLeft, ArrowRight, Check, Sparkles } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Sparkles, Loader2, AlertTriangle, X } from "lucide-react";
+import { getOAuthError } from "@/lib/oauth/errors";
 
 const STEPS = [
   { title: "Business Basics", description: "Tell us about your business" },
@@ -24,8 +26,15 @@ const STEPS = [
 export default function OnboardingPage() {
   const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [connecting, setConnecting] = useState<string | null>(null);
+  const [connectError, setConnectError] = useState<string | null>(null);
   const router = useRouter();
+  const searchParams = useSearchParams();
   const supabase = createClient();
+
+  const justConnected = searchParams.get("connected");
+  const errorCode = searchParams.get("error");
+  const oauthError = errorCode ? getOAuthError(errorCode) : null;
 
   const [formData, setFormData] = useState({
     name: "",
@@ -232,6 +241,42 @@ export default function OnboardingPage() {
 
           {step === 4 && (
             <div className="space-y-4">
+              {oauthError && (
+                <div className={`rounded-lg border p-4 flex items-start justify-between gap-3 ${
+                  oauthError.severity === "error" ? "border-red-500/20 bg-red-500/5" : "border-amber-500/20 bg-amber-500/5"
+                }`}>
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className={`h-5 w-5 mt-0.5 shrink-0 ${oauthError.severity === "error" ? "text-red-400" : "text-amber-400"}`} />
+                    <div>
+                      <p className={`text-sm font-medium ${oauthError.severity === "error" ? "text-red-400" : "text-amber-400"}`}>
+                        {oauthError.title}
+                      </p>
+                      <p className={`text-sm mt-0.5 ${oauthError.severity === "error" ? "text-red-400/80" : "text-amber-400/80"}`}>
+                        {oauthError.message}
+                      </p>
+                    </div>
+                  </div>
+                  <Button variant="ghost" size="sm" className="shrink-0 -mt-1 -mr-2" onClick={() => router.replace("/onboarding")}>
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              )}
+
+              {connectError && (
+                <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-4 flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="h-5 w-5 mt-0.5 shrink-0 text-red-400" />
+                    <div>
+                      <p className="text-sm font-medium text-red-400">{getOAuthError(connectError).title}</p>
+                      <p className="text-sm mt-0.5 text-red-400/80">{getOAuthError(connectError).message}</p>
+                    </div>
+                  </div>
+                  <Button variant="ghost" size="sm" className="shrink-0 -mt-1 -mr-2" onClick={() => setConnectError(null)}>
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              )}
+
               {isDemoMode() ? (
                 <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-4">
                   <p className="text-sm text-amber-400">
@@ -241,20 +286,58 @@ export default function OnboardingPage() {
                 </div>
               ) : (
                 <>
-                  <div className="rounded-lg border border-border p-4 flex items-center justify-between">
-                    <div>
-                      <p className="font-medium">Meta (Facebook & Instagram)</p>
-                      <p className="text-sm text-muted-foreground">Connect to manage Meta ads</p>
-                    </div>
-                    <Button variant="outline" size="sm">Connect</Button>
-                  </div>
-                  <div className="rounded-lg border border-border p-4 flex items-center justify-between">
-                    <div>
-                      <p className="font-medium">Google Drive</p>
-                      <p className="text-sm text-muted-foreground">Import creative assets</p>
-                    </div>
-                    <Button variant="outline" size="sm">Connect</Button>
-                  </div>
+                  {[
+                    { platform: "meta", label: "Meta (Facebook & Instagram)", desc: "Connect to manage Meta ads" },
+                    { platform: "google_drive", label: "Google Drive", desc: "Import creative assets" },
+                  ].map(({ platform, label, desc }) => {
+                    const isConnected = justConnected === platform;
+                    const isConnecting = connecting === platform;
+                    return (
+                      <div key={platform} className="rounded-lg border border-border p-4 flex items-center justify-between">
+                        <div>
+                          <p className="font-medium">{label}</p>
+                          <p className="text-sm text-muted-foreground">{desc}</p>
+                        </div>
+                        {isConnected ? (
+                          <Badge variant="success">Connected</Badge>
+                        ) : (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={isConnecting}
+                            onClick={async () => {
+                              setConnecting(platform);
+                              setConnectError(null);
+                              try {
+                                const res = await fetch(`/api/connections/${platform}/authorize?returnTo=/onboarding`);
+                                if (!res.ok) {
+                                  setConnectError("network_error");
+                                  setConnecting(null);
+                                  return;
+                                }
+                                const data = await res.json();
+                                if (data.url) {
+                                  window.location.href = data.url;
+                                } else {
+                                  setConnectError("oauth_failed");
+                                  setConnecting(null);
+                                }
+                              } catch {
+                                setConnectError("network_error");
+                                setConnecting(null);
+                              }
+                            }}
+                          >
+                            {isConnecting ? (
+                              <><Loader2 className="mr-1 h-4 w-4 animate-spin" /> Connecting...</>
+                            ) : (
+                              "Connect"
+                            )}
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  })}
                 </>
               )}
               <p className="text-sm text-muted-foreground text-center">
