@@ -36,7 +36,7 @@ export const PLATFORMS = {
 } as const;
 
 export const NAV_ITEMS = [
-  { href: '/', label: 'Dashboard', icon: 'LayoutDashboard' },
+  { href: '/dashboard', label: 'Dashboard', icon: 'LayoutDashboard' },
   { href: '/campaigns', label: 'Campaigns', icon: 'Megaphone' },
   { href: '/brand-brief', label: 'Brand Brief', icon: 'FileText' },
   { href: '/assets', label: 'Assets', icon: 'Image' },

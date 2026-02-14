@@ -82,7 +82,7 @@ export default function OnboardingPage() {
 
       if (error) throw error;
 
-      router.push("/");
+      router.push("/dashboard");
       router.refresh();
     } catch (err) {
       console.error("Onboarding error:", err);

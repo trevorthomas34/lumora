@@ -7,7 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import { Badge } from "@/components/ui/badge";
 
 const pageTitles: Record<string, string> = {
-  "/": "Dashboard",
+  "/dashboard": "Dashboard",
   "/campaigns": "Campaigns",
   "/brand-brief": "Brand Brief",
   "/assets": "Assets",

@@ -31,7 +31,7 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
 };
 
 const navItems = [
-  { href: "/", label: "Dashboard", icon: "LayoutDashboard" },
+  { href: "/dashboard", label: "Dashboard", icon: "LayoutDashboard" },
   { href: "/campaigns", label: "Campaigns", icon: "Megaphone" },
   { href: "/brand-brief", label: "Brand Brief", icon: "FileText" },
   { href: "/assets", label: "Assets", icon: "Image" },
@@ -85,7 +85,7 @@ export function Sidebar({ recommendationCount = 0 }: SidebarProps) {
             {navItems.map((item) => {
               const Icon = iconMap[item.icon];
               const isActive =
-                item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+                item.href === "/dashboard" ? pathname === "/dashboard" : pathname.startsWith(item.href);
 
               return (
                 <Link

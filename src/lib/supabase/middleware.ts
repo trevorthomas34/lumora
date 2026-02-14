@@ -29,7 +29,8 @@ export async function updateSession(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
 
   const isAuthPage = pathname.startsWith('/login') || pathname.startsWith('/signup');
-  const isPublicPath = isAuthPage || pathname.startsWith('/api/auth');
+  const isLandingPage = pathname === '/';
+  const isPublicPath = isAuthPage || isLandingPage || pathname.startsWith('/api/auth') || pathname.startsWith('/api/connections');
 
   if (!user && !isPublicPath) {
     const url = request.nextUrl.clone();
@@ -37,13 +38,13 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  if (user && isAuthPage) {
+  if (user && (isAuthPage || isLandingPage)) {
     const url = request.nextUrl.clone();
-    url.pathname = '/';
+    url.pathname = '/dashboard';
     return NextResponse.redirect(url);
   }
 
-  if (user && !isAuthPage && !pathname.startsWith('/onboarding') && !pathname.startsWith('/api')) {
+  if (user && !isAuthPage && !isLandingPage && !pathname.startsWith('/onboarding') && !pathname.startsWith('/api')) {
     const { data: business } = await supabase
       .from('businesses')
       .select('onboarding_completed')
