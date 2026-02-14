@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { SettingsContent } from "@/components/dashboard/settings-content";
@@ -21,9 +22,11 @@ export default async function SettingsPage() {
     .eq("business_id", business.id);
 
   return (
-    <SettingsContent
-      business={business}
-      connections={connections || []}
-    />
+    <Suspense>
+      <SettingsContent
+        business={business}
+        connections={connections || []}
+      />
+    </Suspense>
   );
 }

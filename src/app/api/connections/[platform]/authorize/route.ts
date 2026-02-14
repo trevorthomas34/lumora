@@ -35,6 +35,19 @@ export async function GET(
     const url = new URL(request.url);
     const returnTo = url.searchParams.get('returnTo') || '/settings';
 
+    // Guard: ensure required env vars are set before attempting OAuth
+    const requiredEnvVars: Record<string, string[]> = {
+      meta: ['META_APP_ID', 'META_APP_SECRET'],
+      google_drive: ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'],
+    };
+    const missing = (requiredEnvVars[platform] || []).filter(v => !process.env[v]);
+    if (missing.length > 0) {
+      return NextResponse.json(
+        { error: `${platform} connection not configured. Missing: ${missing.join(', ')}` },
+        { status: 503 }
+      );
+    }
+
     const config = getOAuthConfig(platform);
     const state = createOAuthState(business.id, returnTo);
 

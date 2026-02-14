@@ -1,5 +1,6 @@
 import { createServiceRoleClient } from '../supabase/server';
 import { getPlatformAdapter } from '../adapters/types';
+import { getValidTokens } from '../oauth/tokens';
 import { analyzePerformance } from './optimizer';
 import type { CampaignEntity, Platform } from '@/types';
 import { format, subDays } from 'date-fns';
@@ -23,8 +24,29 @@ export async function runDailySync(businessId: string) {
     return acc;
   }, {});
 
+  const isDemoMode = process.env.NEXT_PUBLIC_DEMO_MODE === 'true';
+
   for (const [platform, platformEntities] of Object.entries(byPlatform)) {
     const adapter = getPlatformAdapter(platform as 'meta' | 'google_ads');
+
+    if (!isDemoMode) {
+      const { data: connection } = await supabase
+        .from('connections')
+        .select('*')
+        .eq('business_id', businessId)
+        .eq('platform', platform)
+        .single();
+
+      if (connection) {
+        try {
+          const tokens = await getValidTokens(connection);
+          await adapter.connect(tokens);
+        } catch (error) {
+          console.error(`Failed to connect adapter for ${platform}:`, error);
+          continue;
+        }
+      }
+    }
 
     for (const entity of platformEntities) {
       if (!entity.platform_entity_id) continue;

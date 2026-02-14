@@ -77,7 +77,25 @@ export function BrandBriefContent({ business, brandBrief }: BrandBriefContentPro
     );
   }
 
-  const brief = brandBrief.brief_data;
+  const raw = brandBrief.brief_data;
+  const brief = {
+    ...raw,
+    services_offered: raw.services_offered ?? [],
+    key_messages: raw.key_messages ?? [],
+    recommended_angles: raw.recommended_angles ?? [],
+    target_audience: {
+      demographics: raw.target_audience?.demographics ?? "",
+      psychographics: raw.target_audience?.psychographics ?? "",
+      pain_points: raw.target_audience?.pain_points ?? [],
+      desires: raw.target_audience?.desires ?? [],
+    },
+    brand_voice: {
+      tone: raw.brand_voice?.tone ?? "",
+      style: raw.brand_voice?.style ?? "",
+      do_say: raw.brand_voice?.do_say ?? [],
+      dont_say: raw.brand_voice?.dont_say ?? [],
+    },
+  };
 
   return (
     <div className="space-y-6">

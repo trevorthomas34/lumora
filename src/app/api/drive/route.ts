@@ -1,5 +1,6 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getDriveAdapter } from "@/lib/adapters/types";
+import { getValidTokens } from "@/lib/oauth/tokens";
 import { NextResponse } from "next/server";
 
 export async function POST(request: Request) {
@@ -25,11 +26,8 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "Google Drive not connected" }, { status: 400 });
       }
 
-      await adapter.connect({
-        access_token: connection.access_token_encrypted,
-        refresh_token: connection.refresh_token_encrypted,
-        expires_at: connection.token_expires_at,
-      });
+      const tokens = await getValidTokens(connection);
+      await adapter.connect(tokens);
     }
 
     const files = await adapter.listFiles(folderId || "root");
