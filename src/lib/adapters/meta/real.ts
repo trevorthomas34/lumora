@@ -19,6 +19,26 @@ export class MetaApiError extends Error {
   }
 }
 
+// ── Optimization goal mapping (per ad set, based on campaign objective) ─────
+
+function mapOptimizationGoal(campaignObjective: string): { optimization_goal: string; billing_event: string } {
+  const o = campaignObjective.toUpperCase();
+  if (o === 'REACH' || o === 'AWARENESS' || o === 'OUTCOME_AWARENESS') {
+    return { optimization_goal: 'REACH', billing_event: 'IMPRESSIONS' };
+  }
+  if (o === 'TRAFFIC' || o === 'OUTCOME_TRAFFIC') {
+    return { optimization_goal: 'LINK_CLICKS', billing_event: 'IMPRESSIONS' };
+  }
+  if (o === 'LEADS' || o === 'LEAD_GENERATION' || o === 'OUTCOME_LEADS') {
+    return { optimization_goal: 'LEAD_GENERATION', billing_event: 'IMPRESSIONS' };
+  }
+  if (o === 'ENGAGEMENT' || o === 'OUTCOME_ENGAGEMENT') {
+    return { optimization_goal: 'POST_ENGAGEMENT', billing_event: 'IMPRESSIONS' };
+  }
+  // CONVERSIONS / OUTCOME_SALES — use LINK_CLICKS as safe fallback (no pixel required)
+  return { optimization_goal: 'LINK_CLICKS', billing_event: 'IMPRESSIONS' };
+}
+
 // ── Objective mapping ────────────────────────────────────────────────
 
 function mapObjective(objective: string): string {
@@ -154,7 +174,7 @@ export class RealMetaAdapter implements PlatformAdapter {
 
   // ── Create Ad Set ────────────────────────────────────────────────
 
-  async createAdSet(campaignId: string, plan: AdSetConfig): Promise<PlatformEntity> {
+  async createAdSet(campaignId: string, plan: AdSetConfig, campaignObjective?: string): Promise<PlatformEntity> {
     // Start time: tomorrow at midnight UTC
     const tomorrow = new Date();
     tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
@@ -182,6 +202,8 @@ export class RealMetaAdapter implements PlatformAdapter {
     // Note: interest targeting requires {id, name} pairs from Meta's search API.
     // Skipped for now — interests will be a follow-up.
 
+    const { optimization_goal, billing_event } = mapOptimizationGoal(campaignObjective || 'TRAFFIC');
+
     const data = await this.metaFetch<{ id: string }>(
       `/${this.adAccountId}/adsets`,
       {
@@ -190,8 +212,8 @@ export class RealMetaAdapter implements PlatformAdapter {
           name: plan.name,
           campaign_id: campaignId,
           status: 'PAUSED',
-          billing_event: 'IMPRESSIONS',
-          optimization_goal: 'CONVERSIONS',
+          billing_event,
+          optimization_goal,
           targeting,
           start_time: tomorrow.toISOString(),
           // No daily_budget here — using CBO at campaign level

@@ -102,7 +102,7 @@ export async function POST(request: Request) {
         let platformAdSetId: string;
         let adSetEntityId: string | null = null;
         try {
-          const platformAdSet = await adapter.createAdSet(platformCampaignId, adSet);
+          const platformAdSet = await adapter.createAdSet(platformCampaignId, adSet, campaign.objective);
           platformAdSetId = platformAdSet.platform_id;
 
           const { data: adSetEntity } = await supabase

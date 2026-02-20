@@ -13,7 +13,7 @@ import type {
 export interface PlatformAdapter {
   connect(credentials: OAuthTokens): Promise<void>;
   createCampaign(plan: CampaignConfig): Promise<PlatformEntity>;
-  createAdSet(campaignId: string, plan: AdSetConfig): Promise<PlatformEntity>;
+  createAdSet(campaignId: string, plan: AdSetConfig, campaignObjective?: string): Promise<PlatformEntity>;
   createAd(adSetId: string, plan: AdConfig): Promise<PlatformEntity>;
   getInsights(entityId: string, dateRange: DateRange): Promise<Metrics>;
   updateBudget(entityId: string, amount: number): Promise<void>;
