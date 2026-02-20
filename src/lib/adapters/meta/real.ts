@@ -240,9 +240,7 @@ export class RealMetaAdapter implements PlatformAdapter {
       start_time: tomorrow.toISOString(),
     };
 
-    if (dailyBudgetCents && dailyBudgetCents > 0) {
-      adSetBody.daily_budget = dailyBudgetCents;
-    }
+    // No ad set budget — campaign uses CBO (daily_budget + bid_strategy set at campaign level)
     console.log('[Meta] createAdSet body:', JSON.stringify(adSetBody, null, 2));
 
     const data = await this.metaFetch<{ id: string }>(
