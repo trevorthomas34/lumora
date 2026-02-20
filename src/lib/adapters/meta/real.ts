@@ -219,6 +219,7 @@ export class RealMetaAdapter implements PlatformAdapter {
       age_min: plan.targeting.age_min,
       age_max: plan.targeting.age_max,
       geo_locations: { countries: normalizeCountryCodes(plan.targeting.locations) },
+      targeting_automation: { advantage_audience: 0 }, // use our own targeting, not Meta's AI
     };
 
     if (genderCodes.length > 0) {
