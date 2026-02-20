@@ -182,8 +182,7 @@ export class RealMetaAdapter implements PlatformAdapter {
           objective: mapObjective(plan.objective),
           status: 'PAUSED',
           special_ad_categories: [],
-          daily_budget: Math.round(plan.daily_budget * 100),
-          budget_rebalance_flag: true, // enables Campaign Budget Optimization (CBO)
+          // Budget is set at ad set level — no campaign-level budget
         },
       },
     );
@@ -199,7 +198,7 @@ export class RealMetaAdapter implements PlatformAdapter {
 
   // ── Create Ad Set ────────────────────────────────────────────────
 
-  async createAdSet(campaignId: string, plan: AdSetConfig, campaignObjective?: string): Promise<PlatformEntity> {
+  async createAdSet(campaignId: string, plan: AdSetConfig, campaignObjective?: string, dailyBudgetCents?: number): Promise<PlatformEntity> {
     // Start time: tomorrow at midnight UTC
     const tomorrow = new Date();
     tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
@@ -229,7 +228,7 @@ export class RealMetaAdapter implements PlatformAdapter {
 
     const { optimization_goal, billing_event } = mapOptimizationGoal(campaignObjective || 'TRAFFIC');
 
-    const adSetBody = {
+    const adSetBody: Record<string, unknown> = {
       name: plan.name,
       campaign_id: campaignId,
       status: 'PAUSED',
@@ -238,6 +237,10 @@ export class RealMetaAdapter implements PlatformAdapter {
       targeting,
       start_time: tomorrow.toISOString(),
     };
+
+    if (dailyBudgetCents && dailyBudgetCents > 0) {
+      adSetBody.daily_budget = dailyBudgetCents;
+    }
     console.log('[Meta] createAdSet body:', JSON.stringify(adSetBody, null, 2));
 
     const data = await this.metaFetch<{ id: string }>(
