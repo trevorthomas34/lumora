@@ -182,7 +182,8 @@ export class RealMetaAdapter implements PlatformAdapter {
           objective: mapObjective(plan.objective),
           status: 'PAUSED',
           special_ad_categories: [],
-          daily_budget: Math.round(plan.daily_budget * 100), // CBO: budget at campaign level
+          daily_budget: Math.round(plan.daily_budget * 100),
+          budget_rebalance_flag: true, // enables Campaign Budget Optimization (CBO)
         },
       },
     );
