@@ -82,13 +82,13 @@ export async function GET(
 
     if (platform === 'meta') {
       const meRes = await fetch(
-        `https://graph.facebook.com/v21.0/me/adaccounts?fields=name,account_id&access_token=${tokenData.access_token}`
+        `https://graph.facebook.com/v21.0/me/adaccounts?fields=id,name&access_token=${tokenData.access_token}`
       );
       if (meRes.ok) {
         const meData = await meRes.json();
         const first = meData.data?.[0];
         if (first) {
-          accountId = first.account_id;
+          accountId = first.id; // act_XXXXX format
           accountName = first.name;
         }
       }

@@ -54,6 +54,12 @@ export async function POST(request: Request) {
       }
 
       const tokens = await getValidTokens(connection);
+
+      // Use the stored ad account ID (set in Settings) so campaigns go to the right account
+      if (connection.platform_account_id) {
+        (adapter as RealMetaAdapter).selectedAdAccountId = connection.platform_account_id;
+      }
+
       await adapter.connect(tokens);
 
       // Pass business website URL for ad creative links

@@ -47,6 +47,9 @@ export class RealMetaAdapter implements PlatformAdapter {
   /** URL used as the `link` in ad creatives – set by the launch route. */
   public businessWebsiteUrl: string | null = null;
 
+  /** If set, skip the ad account API fetch and use this ID directly (act_XXXXX format). */
+  public selectedAdAccountId: string | null = null;
+
   // ── Internal fetch helper ────────────────────────────────────────
 
   private async metaFetch<T = Record<string, unknown>>(
@@ -96,16 +99,20 @@ export class RealMetaAdapter implements PlatformAdapter {
   async connect(credentials: OAuthTokens): Promise<void> {
     this.accessToken = credentials.access_token;
 
-    // Fetch ad accounts
-    const accounts = await this.metaFetch<{ data: { id: string; name: string }[] }>(
-      '/me/adaccounts',
-      { params: { fields: 'id,name' } },
-    );
+    if (this.selectedAdAccountId) {
+      this.adAccountId = this.selectedAdAccountId;
+    } else {
+      // Fetch ad accounts and use the first one
+      const accounts = await this.metaFetch<{ data: { id: string; name: string }[] }>(
+        '/me/adaccounts',
+        { params: { fields: 'id,name' } },
+      );
 
-    if (!accounts.data?.[0]) {
-      throw new Error('No Meta ad account found for this user');
+      if (!accounts.data?.[0]) {
+        throw new Error('No Meta ad account found for this user');
+      }
+      this.adAccountId = accounts.data[0].id; // format: "act_123456"
     }
-    this.adAccountId = accounts.data[0].id; // format: "act_123456"
 
     // Fetch Pages (needed for ad creatives)
     const pages = await this.metaFetch<{ data: { id: string; name: string }[] }>(

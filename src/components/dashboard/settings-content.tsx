@@ -13,9 +13,14 @@ import type { Business, Connection } from "@/types";
 import { Save, Link2, Unlink, Sparkles, Loader2, X, AlertTriangle } from "lucide-react";
 import { getOAuthError } from "@/lib/oauth/errors";
 
+interface AdAccount {
+  id: string;
+  name: string;
+}
+
 interface SettingsContentProps {
   business: Business;
-  connections: Pick<Connection, "id" | "platform" | "status" | "platform_account_name" | "updated_at">[];
+  connections: Pick<Connection, "id" | "platform" | "status" | "platform_account_id" | "platform_account_name" | "updated_at">[];
 }
 
 export function SettingsContent({ business, connections }: SettingsContentProps) {
@@ -23,6 +28,9 @@ export function SettingsContent({ business, connections }: SettingsContentProps)
   const [connecting, setConnecting] = useState<string | null>(null);
   const [disconnecting, setDisconnecting] = useState<string | null>(null);
   const [inlineError, setInlineError] = useState<string | null>(null);
+  const [adAccounts, setAdAccounts] = useState<AdAccount[] | null>(null);
+  const [loadingAdAccounts, setLoadingAdAccounts] = useState(false);
+  const [savingAdAccount, setSavingAdAccount] = useState(false);
   const [name, setName] = useState(business.name);
   const [dailyBudget, setDailyBudget] = useState(business.daily_budget?.toString() || "");
   const [monthlyBudget, setMonthlyBudget] = useState(business.monthly_budget?.toString() || "");
@@ -33,6 +41,35 @@ export function SettingsContent({ business, connections }: SettingsContentProps)
   const justConnected = searchParams.get("connected");
   const errorCode = searchParams.get("error");
   const oauthError = errorCode ? getOAuthError(errorCode) : null;
+
+  const handleLoadAdAccounts = async () => {
+    setLoadingAdAccounts(true);
+    try {
+      const res = await fetch(`/api/connections/meta/ad-accounts?businessId=${business.id}`);
+      if (!res.ok) throw new Error("Failed");
+      const data = await res.json();
+      setAdAccounts(data.accounts);
+    } catch {
+      setInlineError("network_error");
+    } finally {
+      setLoadingAdAccounts(false);
+    }
+  };
+
+  const handleSelectAdAccount = async (account: AdAccount) => {
+    setSavingAdAccount(true);
+    try {
+      await fetch("/api/connections/meta/ad-accounts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ businessId: business.id, adAccountId: account.id, adAccountName: account.name }),
+      });
+      setAdAccounts(null);
+      router.refresh();
+    } finally {
+      setSavingAdAccount(false);
+    }
+  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -201,7 +238,8 @@ export function SettingsContent({ business, connections }: SettingsContentProps)
             const isDisconnecting = disconnecting === platform;
             const isGoogleAds = platform === "google_ads";
             return (
-              <div key={platform} className="flex items-center justify-between p-3 rounded-lg border border-border">
+              <div key={platform} className="p-3 rounded-lg border border-border space-y-2">
+                <div className="flex items-center justify-between">
                 <div>
                   <p className="font-medium">{platformNames[platform] || platform}</p>
                   {conn?.platform_account_name && (
@@ -264,6 +302,54 @@ export function SettingsContent({ business, connections }: SettingsContentProps)
                     </Button>
                   )}
                 </div>
+                </div>
+
+                {/* Ad account picker — only for Meta when connected */}
+                {platform === "meta" && conn?.status === "active" && (
+                  <div className="pt-1">
+                    {adAccounts === null ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-xs text-muted-foreground h-auto py-1 px-2"
+                        onClick={handleLoadAdAccounts}
+                        disabled={loadingAdAccounts || isDemoMode()}
+                      >
+                        {loadingAdAccounts ? (
+                          <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                        ) : null}
+                        Change ad account
+                      </Button>
+                    ) : (
+                      <div className="space-y-1">
+                        <p className="text-xs text-muted-foreground mb-1">Select ad account:</p>
+                        {adAccounts.map((account) => (
+                          <button
+                            key={account.id}
+                            onClick={() => handleSelectAdAccount(account)}
+                            disabled={savingAdAccount}
+                            className={`w-full text-left text-sm px-3 py-2 rounded-md border transition-colors ${
+                              conn.platform_account_id === account.id
+                                ? "border-primary bg-primary/10 text-primary"
+                                : "border-border hover:border-primary/50 hover:bg-muted/30"
+                            }`}
+                          >
+                            <span className="font-medium">{account.name}</span>
+                            <span className="text-xs text-muted-foreground ml-2">{account.id}</span>
+                          </button>
+                        ))}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-xs h-auto py-1 px-2"
+                          onClick={() => setAdAccounts(null)}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}
