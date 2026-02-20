@@ -51,7 +51,7 @@ export async function GET(
       tokenData = await res.json();
 
       // Exchange short-lived token for long-lived token (~60 days)
-      const longLivedUrl = new URL('https://graph.facebook.com/v19.0/oauth/access_token');
+      const longLivedUrl = new URL('https://graph.facebook.com/v21.0/oauth/access_token');
       longLivedUrl.searchParams.set('grant_type', 'fb_exchange_token');
       longLivedUrl.searchParams.set('client_id', config.clientId);
       longLivedUrl.searchParams.set('client_secret', config.clientSecret);
@@ -82,7 +82,7 @@ export async function GET(
 
     if (platform === 'meta') {
       const meRes = await fetch(
-        `https://graph.facebook.com/v19.0/me/adaccounts?fields=name,account_id&access_token=${tokenData.access_token}`
+        `https://graph.facebook.com/v21.0/me/adaccounts?fields=name,account_id&access_token=${tokenData.access_token}`
       );
       if (meRes.ok) {
         const meData = await meRes.json();

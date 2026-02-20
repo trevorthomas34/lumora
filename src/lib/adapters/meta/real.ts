@@ -1,78 +1,307 @@
 import type { PlatformAdapter } from '../types';
 import type { OAuthTokens, PlatformEntity, CampaignConfig, AdSetConfig, AdConfig, Metrics, DateRange } from '@/types';
 
+const META_API_BASE = 'https://graph.facebook.com/v21.0';
+
+// ── Error class for Meta API errors ──────────────────────────────────
+
+export class MetaApiError extends Error {
+  code: number;
+  type: string;
+  subcode?: number;
+
+  constructor(message: string, code: number, type: string, subcode?: number) {
+    super(message);
+    this.name = 'MetaApiError';
+    this.code = code;
+    this.type = type;
+    this.subcode = subcode;
+  }
+}
+
+// ── Objective mapping ────────────────────────────────────────────────
+
+function mapObjective(objective: string): string {
+  const map: Record<string, string> = {
+    traffic: 'OUTCOME_TRAFFIC',
+    conversions: 'OUTCOME_SALES',
+    sales: 'OUTCOME_SALES',
+    leads: 'OUTCOME_LEADS',
+    lead_generation: 'OUTCOME_LEADS',
+    awareness: 'OUTCOME_AWARENESS',
+    brand_awareness: 'OUTCOME_AWARENESS',
+    reach: 'OUTCOME_AWARENESS',
+    engagement: 'OUTCOME_ENGAGEMENT',
+    video_views: 'OUTCOME_ENGAGEMENT',
+  };
+  return map[objective.toLowerCase()] || 'OUTCOME_TRAFFIC';
+}
+
+// ── Adapter ──────────────────────────────────────────────────────────
+
 export class RealMetaAdapter implements PlatformAdapter {
   private accessToken: string | null = null;
   private adAccountId: string | null = null;
+  private pageId: string | null = null;
+
+  /** URL used as the `link` in ad creatives – set by the launch route. */
+  public businessWebsiteUrl: string | null = null;
+
+  // ── Internal fetch helper ────────────────────────────────────────
+
+  private async metaFetch<T = Record<string, unknown>>(
+    path: string,
+    options: { method?: string; body?: Record<string, unknown>; params?: Record<string, string> } = {},
+  ): Promise<T> {
+    const url = new URL(`${META_API_BASE}${path}`);
+    if (options.params) {
+      for (const [k, v] of Object.entries(options.params)) {
+        url.searchParams.set(k, v);
+      }
+    }
+
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${this.accessToken}`,
+    };
+
+    let fetchBody: string | undefined;
+    if (options.body) {
+      headers['Content-Type'] = 'application/json';
+      fetchBody = JSON.stringify(options.body);
+    }
+
+    const res = await fetch(url.toString(), {
+      method: options.method || 'GET',
+      headers,
+      body: fetchBody,
+    });
+
+    const data = await res.json();
+
+    if (!res.ok || data.error) {
+      const err = data.error || {};
+      throw new MetaApiError(
+        err.message || `Meta API ${res.status}`,
+        err.code ?? res.status,
+        err.type ?? 'UnknownError',
+        err.error_subcode,
+      );
+    }
+
+    return data as T;
+  }
+
+  // ── Connect ──────────────────────────────────────────────────────
 
   async connect(credentials: OAuthTokens): Promise<void> {
     this.accessToken = credentials.access_token;
-    const response = await fetch(`https://graph.facebook.com/v19.0/me/adaccounts?access_token=${this.accessToken}`);
-    const data = await response.json();
-    if (data.data?.[0]) this.adAccountId = data.data[0].id;
+
+    // Fetch ad accounts
+    const accounts = await this.metaFetch<{ data: { id: string; name: string }[] }>(
+      '/me/adaccounts',
+      { params: { fields: 'id,name' } },
+    );
+
+    if (!accounts.data?.[0]) {
+      throw new Error('No Meta ad account found for this user');
+    }
+    this.adAccountId = accounts.data[0].id; // format: "act_123456"
+
+    // Fetch Pages (needed for ad creatives)
+    const pages = await this.metaFetch<{ data: { id: string; name: string }[] }>(
+      '/me/accounts',
+      { params: { fields: 'id,name' } },
+    );
+
+    if (!pages.data?.[0]) {
+      throw new Error('No Facebook Page found — a Page is required to create ad creatives');
+    }
+    this.pageId = pages.data[0].id;
   }
+
+  // ── Create Campaign (CBO) ───────────────────────────────────────
 
   async createCampaign(plan: CampaignConfig): Promise<PlatformEntity> {
-    const response = await fetch(`https://graph.facebook.com/v19.0/${this.adAccountId}/campaigns`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.accessToken}` },
-      body: JSON.stringify({ name: plan.name, objective: plan.objective.toUpperCase(), status: 'PAUSED', daily_budget: Math.round(plan.daily_budget * 100), special_ad_categories: [] }),
-    });
-    const data = await response.json();
-    return { platform_id: data.id, platform: 'meta', entity_type: 'campaign', name: plan.name, status: 'PAUSED' };
-  }
-
-  async createAdSet(campaignId: string, plan: AdSetConfig): Promise<PlatformEntity> {
-    const response = await fetch(`https://graph.facebook.com/v19.0/${this.adAccountId}/adsets`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.accessToken}` },
-      body: JSON.stringify({
-        name: plan.name, campaign_id: campaignId, status: 'PAUSED', billing_event: 'IMPRESSIONS', optimization_goal: 'CONVERSIONS',
-        targeting: { age_min: plan.targeting.age_min, age_max: plan.targeting.age_max, geo_locations: { countries: plan.targeting.locations }, interests: plan.targeting.interests.map(i => ({ name: i })) },
-      }),
-    });
-    const data = await response.json();
-    return { platform_id: data.id, platform: 'meta', entity_type: 'ad_set', name: plan.name, status: 'PAUSED' };
-  }
-
-  async createAd(adSetId: string, plan: AdConfig): Promise<PlatformEntity> {
-    const response = await fetch(`https://graph.facebook.com/v19.0/${this.adAccountId}/ads`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.accessToken}` },
-      body: JSON.stringify({ name: plan.name, adset_id: adSetId, creative: { body: plan.primary_text, title: plan.headline, description: plan.description, call_to_action_type: plan.call_to_action.toUpperCase().replace(/ /g, '_') }, status: 'PAUSED' }),
-    });
-    const data = await response.json();
-    return { platform_id: data.id, platform: 'meta', entity_type: 'ad', name: plan.name, status: 'PAUSED' };
-  }
-
-  async getInsights(entityId: string, dateRange: DateRange): Promise<Metrics> {
-    const response = await fetch(
-      `https://graph.facebook.com/v19.0/${entityId}/insights?time_range={"since":"${dateRange.start}","until":"${dateRange.end}"}&fields=spend,impressions,clicks,actions,ctr,cpc,frequency,reach&access_token=${this.accessToken}`
+    const data = await this.metaFetch<{ id: string }>(
+      `/${this.adAccountId}/campaigns`,
+      {
+        method: 'POST',
+        body: {
+          name: plan.name,
+          objective: mapObjective(plan.objective),
+          status: 'PAUSED',
+          special_ad_categories: [],
+          daily_budget: Math.round(plan.daily_budget * 100), // CBO: budget at campaign level
+        },
+      },
     );
-    const data = await response.json();
-    const row = data.data?.[0] || {};
-    const conversions = parseInt(row.actions?.find((a: { action_type: string }) => a.action_type === 'offsite_conversion')?.value || '0');
-    const spend = parseFloat(row.spend || '0');
 
     return {
-      spend, impressions: parseInt(row.impressions || '0'), clicks: parseInt(row.clicks || '0'), conversions,
-      revenue: 0, ctr: parseFloat(row.ctr || '0'), cpc: parseFloat(row.cpc || '0'),
-      cpa: conversions > 0 ? spend / conversions : 0, roas: 0,
-      frequency: parseFloat(row.frequency || '0'), reach: parseInt(row.reach || '0'),
+      platform_id: data.id,
+      platform: 'meta',
+      entity_type: 'campaign',
+      name: plan.name,
+      status: 'PAUSED',
     };
   }
 
+  // ── Create Ad Set ────────────────────────────────────────────────
+
+  async createAdSet(campaignId: string, plan: AdSetConfig): Promise<PlatformEntity> {
+    // Start time: tomorrow at midnight UTC
+    const tomorrow = new Date();
+    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+    tomorrow.setUTCHours(0, 0, 0, 0);
+
+    // Map genders: "male" → 1, "female" → 2, else omit (all genders)
+    const genderCodes = plan.targeting.genders
+      .map((g) => {
+        if (g.toLowerCase() === 'male') return 1;
+        if (g.toLowerCase() === 'female') return 2;
+        return null;
+      })
+      .filter((g) => g !== null) as number[];
+
+    const targeting: Record<string, unknown> = {
+      age_min: plan.targeting.age_min,
+      age_max: plan.targeting.age_max,
+      geo_locations: { countries: plan.targeting.locations },
+    };
+
+    if (genderCodes.length > 0) {
+      targeting.genders = genderCodes;
+    }
+
+    // Note: interest targeting requires {id, name} pairs from Meta's search API.
+    // Skipped for now — interests will be a follow-up.
+
+    const data = await this.metaFetch<{ id: string }>(
+      `/${this.adAccountId}/adsets`,
+      {
+        method: 'POST',
+        body: {
+          name: plan.name,
+          campaign_id: campaignId,
+          status: 'PAUSED',
+          billing_event: 'IMPRESSIONS',
+          optimization_goal: 'CONVERSIONS',
+          targeting,
+          start_time: tomorrow.toISOString(),
+          // No daily_budget here — using CBO at campaign level
+        },
+      },
+    );
+
+    return {
+      platform_id: data.id,
+      platform: 'meta',
+      entity_type: 'ad_set',
+      name: plan.name,
+      status: 'PAUSED',
+    };
+  }
+
+  // ── Create Ad (two-step: creative + ad) ──────────────────────────
+
+  async createAd(adSetId: string, plan: AdConfig): Promise<PlatformEntity> {
+    const linkUrl = this.businessWebsiteUrl || 'https://example.com';
+
+    // Step 1: Create AdCreative
+    const creative = await this.metaFetch<{ id: string }>(
+      `/${this.adAccountId}/adcreatives`,
+      {
+        method: 'POST',
+        body: {
+          name: `Creative - ${plan.name}`,
+          object_story_spec: {
+            page_id: this.pageId,
+            link_data: {
+              message: plan.primary_text,
+              name: plan.headline,
+              description: plan.description,
+              link: linkUrl,
+              call_to_action: {
+                type: plan.call_to_action.toUpperCase().replace(/ /g, '_'),
+              },
+            },
+          },
+        },
+      },
+    );
+
+    // Step 2: Create Ad referencing the creative
+    const ad = await this.metaFetch<{ id: string }>(
+      `/${this.adAccountId}/ads`,
+      {
+        method: 'POST',
+        body: {
+          name: plan.name,
+          adset_id: adSetId,
+          creative: { creative_id: creative.id },
+          status: 'PAUSED',
+        },
+      },
+    );
+
+    return {
+      platform_id: ad.id,
+      platform: 'meta',
+      entity_type: 'ad',
+      name: plan.name,
+      status: 'PAUSED',
+    };
+  }
+
+  // ── Insights ─────────────────────────────────────────────────────
+
+  async getInsights(entityId: string, dateRange: DateRange): Promise<Metrics> {
+    const data = await this.metaFetch<{ data: Record<string, unknown>[] }>(
+      `/${entityId}/insights`,
+      {
+        params: {
+          time_range: JSON.stringify({ since: dateRange.start, until: dateRange.end }),
+          fields: 'spend,impressions,clicks,actions,ctr,cpc,frequency,reach',
+        },
+      },
+    );
+
+    const row = (data.data?.[0] || {}) as Record<string, unknown>;
+    const conversions = parseInt(
+      (row.actions as { action_type: string; value: string }[] | undefined)
+        ?.find((a) => a.action_type === 'offsite_conversion')?.value || '0',
+    );
+    const spend = parseFloat((row.spend as string) || '0');
+
+    return {
+      spend,
+      impressions: parseInt((row.impressions as string) || '0'),
+      clicks: parseInt((row.clicks as string) || '0'),
+      conversions,
+      revenue: 0,
+      ctr: parseFloat((row.ctr as string) || '0'),
+      cpc: parseFloat((row.cpc as string) || '0'),
+      cpa: conversions > 0 ? spend / conversions : 0,
+      roas: 0,
+      frequency: parseFloat((row.frequency as string) || '0'),
+      reach: parseInt((row.reach as string) || '0'),
+    };
+  }
+
+  // ── Update Budget ────────────────────────────────────────────────
+
   async updateBudget(entityId: string, amount: number): Promise<void> {
-    await fetch(`https://graph.facebook.com/v19.0/${entityId}`, {
-      method: 'POST', headers: { 'Authorization': `Bearer ${this.accessToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ daily_budget: Math.round(amount * 100) }),
+    await this.metaFetch(`/${entityId}`, {
+      method: 'POST',
+      body: { daily_budget: Math.round(amount * 100) },
     });
   }
 
+  // ── Update Status ────────────────────────────────────────────────
+
   async updateStatus(entityId: string, status: 'ACTIVE' | 'PAUSED'): Promise<void> {
-    await fetch(`https://graph.facebook.com/v19.0/${entityId}`, {
-      method: 'POST', headers: { 'Authorization': `Bearer ${this.accessToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status }),
+    await this.metaFetch(`/${entityId}`, {
+      method: 'POST',
+      body: { status },
     });
   }
 }

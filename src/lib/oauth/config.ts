@@ -15,11 +15,11 @@ export function getOAuthConfig(platform: Platform): OAuthProviderConfig {
   switch (platform) {
     case 'meta':
       return {
-        authorizeUrl: 'https://www.facebook.com/v19.0/dialog/oauth',
-        tokenUrl: 'https://graph.facebook.com/v19.0/oauth/access_token',
+        authorizeUrl: 'https://www.facebook.com/v21.0/dialog/oauth',
+        tokenUrl: 'https://graph.facebook.com/v21.0/oauth/access_token',
         clientId: process.env.META_APP_ID!,
         clientSecret: process.env.META_APP_SECRET!,
-        scopes: ['ads_management', 'ads_read', 'business_management', 'pages_read_engagement'],
+        scopes: ['ads_management', 'ads_read', 'business_management', 'pages_read_engagement', 'pages_show_list'],
         redirectUri: `${appUrl}/api/connections/meta/callback`,
       };
     case 'google_drive':

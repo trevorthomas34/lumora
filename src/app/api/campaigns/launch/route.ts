@@ -1,7 +1,9 @@
-import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { createServerSupabaseClient, createServiceRoleClient } from "@/lib/supabase/server";
 import { getPlatformAdapter } from "@/lib/adapters/types";
+import { getValidTokens } from "@/lib/oauth/tokens";
 import { NextResponse } from "next/server";
 import type { CampaignConfig } from "@/types";
+import type { RealMetaAdapter } from "@/lib/adapters/meta/real";
 
 export async function POST(request: Request) {
   try {
@@ -24,53 +26,137 @@ export async function POST(request: Request) {
     }
 
     const adapter = getPlatformAdapter("meta");
+    const isDemoMode = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
+
+    // In real mode, retrieve tokens and connect the adapter
+    if (!isDemoMode) {
+      const serviceClient = createServiceRoleClient();
+
+      const { data: business } = await serviceClient
+        .from("businesses")
+        .select("website_url")
+        .eq("id", businessId)
+        .single();
+
+      const { data: connection } = await serviceClient
+        .from("connections")
+        .select("*")
+        .eq("business_id", businessId)
+        .eq("platform", "meta")
+        .eq("status", "active")
+        .single();
+
+      if (!connection) {
+        return NextResponse.json(
+          { error: "Meta is not connected. Please connect Meta in Settings first." },
+          { status: 400 },
+        );
+      }
+
+      const tokens = await getValidTokens(connection);
+      await adapter.connect(tokens);
+
+      // Pass business website URL for ad creative links
+      if (business?.website_url) {
+        (adapter as RealMetaAdapter).businessWebsiteUrl = business.website_url;
+      }
+    }
 
     for (const campaign of plan.plan_data.campaigns as CampaignConfig[]) {
-      const platformCampaign = await adapter.createCampaign(campaign);
+      let platformCampaignId: string;
+      try {
+        const platformCampaign = await adapter.createCampaign(campaign);
+        platformCampaignId = platformCampaign.platform_id;
 
-      await supabase.from("campaign_entities").insert({
-        business_id: businessId,
-        campaign_plan_id: planId,
-        platform: "meta",
-        entity_type: "campaign",
-        platform_entity_id: platformCampaign.platform_id,
-        temp_id: campaign.temp_id,
-        config_snapshot: campaign,
-        status: "active",
-      });
+        await supabase.from("campaign_entities").insert({
+          business_id: businessId,
+          campaign_plan_id: planId,
+          platform: "meta",
+          entity_type: "campaign",
+          platform_entity_id: platformCampaign.platform_id,
+          temp_id: campaign.temp_id,
+          config_snapshot: campaign,
+          status: "active",
+        });
+      } catch (err) {
+        console.error(`Failed to create campaign "${campaign.name}":`, err);
+        await supabase.from("campaign_entities").insert({
+          business_id: businessId,
+          campaign_plan_id: planId,
+          platform: "meta",
+          entity_type: "campaign",
+          temp_id: campaign.temp_id,
+          config_snapshot: campaign,
+          status: "error",
+        });
+        continue;
+      }
 
       for (const adSet of campaign.ad_sets) {
-        const platformAdSet = await adapter.createAdSet(platformCampaign.platform_id, adSet);
+        let platformAdSetId: string;
+        let adSetEntityId: string | null = null;
+        try {
+          const platformAdSet = await adapter.createAdSet(platformCampaignId, adSet);
+          platformAdSetId = platformAdSet.platform_id;
 
-        const { data: adSetEntity } = await supabase
-          .from("campaign_entities")
-          .insert({
-            business_id: businessId,
-            campaign_plan_id: planId,
-            platform: "meta",
-            entity_type: "ad_set",
-            platform_entity_id: platformAdSet.platform_id,
-            temp_id: adSet.temp_id,
-            config_snapshot: adSet,
-            status: "active",
-          })
-          .select()
-          .single();
+          const { data: adSetEntity } = await supabase
+            .from("campaign_entities")
+            .insert({
+              business_id: businessId,
+              campaign_plan_id: planId,
+              platform: "meta",
+              entity_type: "ad_set",
+              platform_entity_id: platformAdSet.platform_id,
+              temp_id: adSet.temp_id,
+              config_snapshot: adSet,
+              status: "active",
+            })
+            .select()
+            .single();
 
-        for (const ad of adSet.ads) {
-          const platformAd = await adapter.createAd(platformAdSet.platform_id, ad);
-
+          adSetEntityId = adSetEntity?.id || null;
+        } catch (err) {
+          console.error(`Failed to create ad set "${adSet.name}":`, err);
           await supabase.from("campaign_entities").insert({
             business_id: businessId,
             campaign_plan_id: planId,
             platform: "meta",
-            entity_type: "ad",
-            platform_entity_id: platformAd.platform_id,
-            temp_id: ad.temp_id,
-            parent_entity_id: adSetEntity?.id || null,
-            config_snapshot: ad,
-            status: "active",
+            entity_type: "ad_set",
+            temp_id: adSet.temp_id,
+            config_snapshot: adSet,
+            status: "error",
           });
+          continue;
+        }
+
+        for (const ad of adSet.ads) {
+          try {
+            const platformAd = await adapter.createAd(platformAdSetId, ad);
+
+            await supabase.from("campaign_entities").insert({
+              business_id: businessId,
+              campaign_plan_id: planId,
+              platform: "meta",
+              entity_type: "ad",
+              platform_entity_id: platformAd.platform_id,
+              temp_id: ad.temp_id,
+              parent_entity_id: adSetEntityId,
+              config_snapshot: ad,
+              status: "active",
+            });
+          } catch (err) {
+            console.error(`Failed to create ad "${ad.name}":`, err);
+            await supabase.from("campaign_entities").insert({
+              business_id: businessId,
+              campaign_plan_id: planId,
+              platform: "meta",
+              entity_type: "ad",
+              temp_id: ad.temp_id,
+              parent_entity_id: adSetEntityId,
+              config_snapshot: ad,
+              status: "error",
+            });
+          }
         }
       }
     }

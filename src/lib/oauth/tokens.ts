@@ -65,7 +65,7 @@ async function refreshTokens(
 
 async function refreshMetaToken(currentToken: string): Promise<OAuthTokens> {
   const config = getOAuthConfig('meta');
-  const url = new URL('https://graph.facebook.com/v19.0/oauth/access_token');
+  const url = new URL('https://graph.facebook.com/v21.0/oauth/access_token');
   url.searchParams.set('grant_type', 'fb_exchange_token');
   url.searchParams.set('client_id', config.clientId);
   url.searchParams.set('client_secret', config.clientSecret);

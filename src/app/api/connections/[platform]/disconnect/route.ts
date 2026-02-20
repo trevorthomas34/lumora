@@ -42,7 +42,7 @@ export async function POST(
       if (connection.access_token_encrypted) {
         const token = decrypt(connection.access_token_encrypted);
         if (platform === 'meta') {
-          await fetch(`https://graph.facebook.com/v19.0/me/permissions?access_token=${token}`, {
+          await fetch(`https://graph.facebook.com/v21.0/me/permissions?access_token=${token}`, {
             method: 'DELETE',
           });
         } else if (platform === 'google_drive') {
