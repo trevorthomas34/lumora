@@ -127,6 +127,7 @@ export class RealMetaAdapter implements PlatformAdapter {
 
     if (!res.ok || data.error) {
       const err = data.error || {};
+      console.error('[Meta] API error:', JSON.stringify(data, null, 2));
       throw new MetaApiError(
         err.message || `Meta API ${res.status}`,
         err.code ?? res.status,
@@ -173,18 +174,18 @@ export class RealMetaAdapter implements PlatformAdapter {
   // ── Create Campaign (CBO) ───────────────────────────────────────
 
   async createCampaign(plan: CampaignConfig): Promise<PlatformEntity> {
+    const campaignBody = {
+      name: plan.name,
+      objective: mapObjective(plan.objective),
+      status: 'PAUSED',
+      special_ad_categories: [] as string[],
+      daily_budget: Math.round(plan.daily_budget * 100), // required — auto-enables CBO in v21.0
+    };
+    console.log('[Meta] createCampaign body:', JSON.stringify(campaignBody, null, 2));
+
     const data = await this.metaFetch<{ id: string }>(
       `/${this.adAccountId}/campaigns`,
-      {
-        method: 'POST',
-        body: {
-          name: plan.name,
-          objective: mapObjective(plan.objective),
-          status: 'PAUSED',
-          special_ad_categories: [],
-          // Budget is set at ad set level — no campaign-level budget
-        },
-      },
+      { method: 'POST', body: campaignBody },
     );
 
     return {
