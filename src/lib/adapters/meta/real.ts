@@ -179,7 +179,8 @@ export class RealMetaAdapter implements PlatformAdapter {
       objective: mapObjective(plan.objective),
       status: 'PAUSED',
       special_ad_categories: [] as string[],
-      daily_budget: Math.round(plan.daily_budget * 100), // required — auto-enables CBO in v21.0
+      daily_budget: Math.round(plan.daily_budget * 100),
+      bid_strategy: 'LOWEST_COST_WITHOUT_CAP', // override account default — no bid_amount required
     };
     console.log('[Meta] createCampaign body:', JSON.stringify(campaignBody, null, 2));
 
