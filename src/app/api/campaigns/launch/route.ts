@@ -122,7 +122,15 @@ export async function POST(request: Request) {
 
           adSetEntityId = adSetEntity?.id || null;
         } catch (err) {
-          console.error(`Failed to create ad set "${adSet.name}":`, err);
+          const metaErr = err as { code?: number; type?: string; subcode?: number; message?: string };
+          console.error(`Failed to create ad set "${adSet.name}":`, {
+            message: metaErr.message,
+            code: metaErr.code,
+            type: metaErr.type,
+            subcode: metaErr.subcode,
+            objective: campaign.objective,
+            targeting: adSet.targeting,
+          });
           await supabase.from("campaign_entities").insert({
             business_id: businessId,
             campaign_plan_id: planId,

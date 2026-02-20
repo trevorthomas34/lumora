@@ -19,6 +19,30 @@ export class MetaApiError extends Error {
   }
 }
 
+// ── Location normalizer (full names → ISO 3166-1 alpha-2 codes) ─────────────
+
+const COUNTRY_NAME_TO_CODE: Record<string, string> = {
+  'united states': 'US', 'united states of america': 'US', 'usa': 'US', 'us': 'US',
+  'united kingdom': 'GB', 'uk': 'GB', 'great britain': 'GB', 'england': 'GB',
+  'canada': 'CA', 'australia': 'AU', 'new zealand': 'NZ',
+  'germany': 'DE', 'france': 'FR', 'spain': 'ES', 'italy': 'IT',
+  'netherlands': 'NL', 'sweden': 'SE', 'norway': 'NO', 'denmark': 'DK',
+  'ireland': 'IE', 'switzerland': 'CH', 'austria': 'AT', 'belgium': 'BE',
+  'portugal': 'PT', 'finland': 'FI', 'poland': 'PL',
+  'brazil': 'BR', 'mexico': 'MX', 'argentina': 'AR', 'colombia': 'CO',
+  'japan': 'JP', 'south korea': 'KR', 'korea': 'KR', 'china': 'CN',
+  'india': 'IN', 'singapore': 'SG', 'hong kong': 'HK',
+  'south africa': 'ZA', 'nigeria': 'NG', 'kenya': 'KE',
+  'uae': 'AE', 'united arab emirates': 'AE', 'saudi arabia': 'SA',
+};
+
+function normalizeCountryCodes(locations: string[]): string[] {
+  return locations.map((loc) => {
+    const key = loc.trim().toLowerCase();
+    return COUNTRY_NAME_TO_CODE[key] || loc.trim().toUpperCase().slice(0, 2);
+  });
+}
+
 // ── Optimization goal mapping (per ad set, based on campaign objective) ─────
 
 function mapOptimizationGoal(campaignObjective: string): { optimization_goal: string; billing_event: string } {
@@ -192,7 +216,7 @@ export class RealMetaAdapter implements PlatformAdapter {
     const targeting: Record<string, unknown> = {
       age_min: plan.targeting.age_min,
       age_max: plan.targeting.age_max,
-      geo_locations: { countries: plan.targeting.locations },
+      geo_locations: { countries: normalizeCountryCodes(plan.targeting.locations) },
     };
 
     if (genderCodes.length > 0) {
@@ -204,20 +228,22 @@ export class RealMetaAdapter implements PlatformAdapter {
 
     const { optimization_goal, billing_event } = mapOptimizationGoal(campaignObjective || 'TRAFFIC');
 
+    const adSetBody = {
+      name: plan.name,
+      campaign_id: campaignId,
+      status: 'PAUSED',
+      billing_event,
+      optimization_goal,
+      targeting,
+      start_time: tomorrow.toISOString(),
+    };
+    console.log('[Meta] createAdSet body:', JSON.stringify(adSetBody, null, 2));
+
     const data = await this.metaFetch<{ id: string }>(
       `/${this.adAccountId}/adsets`,
       {
         method: 'POST',
-        body: {
-          name: plan.name,
-          campaign_id: campaignId,
-          status: 'PAUSED',
-          billing_event,
-          optimization_goal,
-          targeting,
-          start_time: tomorrow.toISOString(),
-          // No daily_budget here — using CBO at campaign level
-        },
+        body: adSetBody,
       },
     );
 
