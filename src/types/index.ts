@@ -29,6 +29,7 @@ export interface Connection {
   token_expires_at: string | null;
   platform_account_id: string | null;
   platform_account_name: string | null;
+  pixel_id: string | null;
   scopes: string[];
   status: ConnectionStatus;
   created_at: string;
@@ -50,6 +51,7 @@ export interface BrandBrief {
 }
 
 export interface BrandBriefData {
+  // Core (always present)
   company_summary: string;
   services_offered: string[];
   value_proposition: string;
@@ -58,6 +60,14 @@ export interface BrandBriefData {
   key_messages: string[];
   competitive_positioning: string;
   recommended_angles: AdAngle[];
+
+  // Performance marketing intelligence (added by new prompts)
+  business_type?: 'local_service' | 'service' | 'ecommerce' | 'saas' | 'b2b' | 'marketplace';
+  conversion_event?: string;      // e.g. "Book a free consultation call"
+  offer_hook?: string;            // e.g. "Free 30-min strategy session — no pitch"
+  objections?: string[];          // Real reasons people don't buy
+  proof_points?: string[];        // Social proof available/needed
+  sales_cycle?: 'impulse' | 'short' | 'medium' | 'long';
 }
 
 export interface TargetAudience {
@@ -65,6 +75,7 @@ export interface TargetAudience {
   psychographics: string;
   pain_points: string[];
   desires: string[];
+  precipitating_event?: string;   // What triggered them to start looking
 }
 
 export interface BrandVoice {
@@ -76,8 +87,10 @@ export interface BrandVoice {
 
 export interface AdAngle {
   name: string;
-  hook: string;
+  framework: string;              // 'PAS' | 'Social Proof' | 'Before/After' | 'Direct Offer' | 'Curiosity'
+  hook: string;                   // The opening line / interrupt
   description: string;
+  draft_primary_text?: string;    // Full draft ad copy for this angle
 }
 
 // ============ Creative Assets ============

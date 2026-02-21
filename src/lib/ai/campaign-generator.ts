@@ -17,8 +17,8 @@ export async function generateCampaignPlan(
   const prompt = buildCampaignPrompt(business, brandBrief, selectedAssetIds);
 
   const message = await client.messages.create({
-    model: 'claude-sonnet-4-5-20250929',
-    max_tokens: 4000,
+    model: 'claude-sonnet-4-6',
+    max_tokens: 6000,
     system: CAMPAIGN_GENERATOR_SYSTEM_PROMPT,
     messages: [{ role: 'user', content: prompt }],
   });

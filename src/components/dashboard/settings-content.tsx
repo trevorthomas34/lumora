@@ -20,7 +20,7 @@ interface AdAccount {
 
 interface SettingsContentProps {
   business: Business;
-  connections: Pick<Connection, "id" | "platform" | "status" | "platform_account_id" | "platform_account_name" | "updated_at">[];
+  connections: Pick<Connection, "id" | "platform" | "status" | "platform_account_id" | "platform_account_name" | "pixel_id" | "updated_at">[];
 }
 
 export function SettingsContent({ business, connections }: SettingsContentProps) {
@@ -31,9 +31,12 @@ export function SettingsContent({ business, connections }: SettingsContentProps)
   const [adAccounts, setAdAccounts] = useState<AdAccount[] | null>(null);
   const [loadingAdAccounts, setLoadingAdAccounts] = useState(false);
   const [savingAdAccount, setSavingAdAccount] = useState(false);
+  const [savingPixelId, setSavingPixelId] = useState(false);
   const [name, setName] = useState(business.name);
   const [dailyBudget, setDailyBudget] = useState(business.daily_budget?.toString() || "");
   const [monthlyBudget, setMonthlyBudget] = useState(business.monthly_budget?.toString() || "");
+  const metaConnection = connections.find((c) => c.platform === "meta" && c.status === "active");
+  const [pixelId, setPixelId] = useState(metaConnection?.pixel_id || "");
   const router = useRouter();
   const searchParams = useSearchParams();
   const supabase = createClient();
@@ -85,6 +88,21 @@ export function SettingsContent({ business, connections }: SettingsContentProps)
       router.refresh();
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSavePixelId = async () => {
+    if (!metaConnection) return;
+    setSavingPixelId(true);
+    try {
+      await fetch("/api/connections/meta/pixel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ businessId: business.id, pixelId: pixelId.trim() || null }),
+      });
+      router.refresh();
+    } finally {
+      setSavingPixelId(false);
     }
   };
 
@@ -306,7 +324,7 @@ export function SettingsContent({ business, connections }: SettingsContentProps)
 
                 {/* Ad account picker — only for Meta when connected */}
                 {platform === "meta" && conn?.status === "active" && (
-                  <div className="pt-1">
+                  <div className="pt-1 space-y-3">
                     {adAccounts === null ? (
                       <Button
                         variant="ghost"
@@ -348,6 +366,32 @@ export function SettingsContent({ business, connections }: SettingsContentProps)
                         </Button>
                       </div>
                     )}
+
+                    {/* Meta Pixel ID */}
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground">Meta Pixel ID (optional)</Label>
+                      <div className="flex gap-2">
+                        <Input
+                          className="h-8 text-sm"
+                          placeholder="e.g. 1234567890123"
+                          value={pixelId}
+                          onChange={(e) => setPixelId(e.target.value)}
+                          disabled={isDemoMode()}
+                        />
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 shrink-0"
+                          onClick={handleSavePixelId}
+                          disabled={savingPixelId || isDemoMode()}
+                        >
+                          {savingPixelId ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+                        </Button>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Required to use OUTCOME_SALES campaigns with conversion tracking.
+                      </p>
+                    </div>
                   </div>
                 )}
               </div>

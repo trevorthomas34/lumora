@@ -63,13 +63,54 @@ function mapOptimizationGoal(campaignObjective: string): { optimization_goal: st
   return { optimization_goal: 'LINK_CLICKS', billing_event: 'IMPRESSIONS' };
 }
 
+// ── CTA normalizer — maps AI-generated text to Meta's enum ──────────
+
+const META_CTA_ENUM = new Set([
+  'BOOK_TRAVEL','CONTACT_US','DONATE','DONATE_NOW','DOWNLOAD','GET_DIRECTIONS',
+  'LEARN_MORE','SHOP_NOW','SIGN_UP','LIKE_PAGE','MESSAGE_PAGE','SEE_MORE',
+  'WHATSAPP_LINK','GET_IN_TOUCH','BOOK_NOW','CHECK_AVAILABILITY','ORDER_NOW',
+  'GET_OFFER','BUY_NOW','BUY_TICKETS','ADD_TO_CART','APPLY_NOW','GET_QUOTE',
+  'SUBSCRIBE','CALL_NOW','WATCH_VIDEO','OPEN_LINK','NO_BUTTON','SEND_TIP',
+  'MAKE_AN_APPOINTMENT','ASK_ABOUT_SERVICES','BOOK_A_CONSULTATION',
+  'GET_A_QUOTE','INQUIRE_NOW','VIEW_PRODUCT','START_ORDER','SEARCH',
+  'REGISTER_NOW','TRY_NOW','TRY_IT',
+]);
+
+// Common AI-generated phrases → valid Meta CTA
+const CTA_ALIAS: Record<string, string> = {
+  'GET_STARTED':        'LEARN_MORE',
+  'START_NOW':          'SIGN_UP',
+  'CONTACT_NOW':        'CONTACT_US',
+  'REACH_OUT':          'CONTACT_US',
+  'FIND_OUT_MORE':      'LEARN_MORE',
+  'DISCOVER_MORE':      'LEARN_MORE',
+  'EXPLORE_NOW':        'LEARN_MORE',
+  'GET_INFO':           'LEARN_MORE',
+  'REQUEST_INFO':       'LEARN_MORE',
+  'SCHEDULE_NOW':       'MAKE_AN_APPOINTMENT',
+  'BOOK_CONSULTATION':  'BOOK_A_CONSULTATION',
+  'GET_ESTIMATE':       'GET_A_QUOTE',
+  'REQUEST_QUOTE':      'GET_A_QUOTE',
+  'BUY':                'BUY_NOW',
+  'PURCHASE':           'BUY_NOW',
+  'ORDER':              'ORDER_NOW',
+};
+
+function normalizeCta(raw: string): string {
+  const key = raw.trim().toUpperCase().replace(/\s+/g, '_').replace(/[^A-Z0-9_]/g, '');
+  if (META_CTA_ENUM.has(key)) return key;
+  if (CTA_ALIAS[key]) return CTA_ALIAS[key];
+  return 'LEARN_MORE'; // safe universal fallback
+}
+
 // ── Objective mapping ────────────────────────────────────────────────
 
-function mapObjective(objective: string): string {
+function mapObjective(objective: string, hasPixel = false): string {
   const map: Record<string, string> = {
     traffic: 'OUTCOME_TRAFFIC',
-    conversions: 'OUTCOME_SALES',
-    sales: 'OUTCOME_SALES',
+    // OUTCOME_SALES requires a Meta Pixel — use OUTCOME_TRAFFIC as fallback when no pixel
+    conversions: hasPixel ? 'OUTCOME_SALES' : 'OUTCOME_TRAFFIC',
+    sales: hasPixel ? 'OUTCOME_SALES' : 'OUTCOME_TRAFFIC',
     leads: 'OUTCOME_LEADS',
     lead_generation: 'OUTCOME_LEADS',
     awareness: 'OUTCOME_AWARENESS',
@@ -93,6 +134,9 @@ export class RealMetaAdapter implements PlatformAdapter {
 
   /** If set, skip the ad account API fetch and use this ID directly (act_XXXXX format). */
   public selectedAdAccountId: string | null = null;
+
+  /** Meta Pixel ID — enables OUTCOME_SALES objective and pixel-based conversion tracking. */
+  public pixelId: string | null = null;
 
   // ── Internal fetch helper ────────────────────────────────────────
 
@@ -176,11 +220,12 @@ export class RealMetaAdapter implements PlatformAdapter {
   async createCampaign(plan: CampaignConfig): Promise<PlatformEntity> {
     const campaignBody = {
       name: plan.name,
-      objective: mapObjective(plan.objective),
+      objective: mapObjective(plan.objective, !!this.pixelId),
       status: 'PAUSED',
       special_ad_categories: [] as string[],
+      is_campaign_budget_optimization: true,  // CBO — budget lives at campaign level, not ad set
       daily_budget: Math.round(plan.daily_budget * 100),
-      bid_strategy: 'LOWEST_COST_WITHOUT_CAP', // override account default — no bid_amount required
+      bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
     };
     console.log('[Meta] createCampaign body:', JSON.stringify(campaignBody, null, 2));
 
@@ -200,7 +245,7 @@ export class RealMetaAdapter implements PlatformAdapter {
 
   // ── Create Ad Set ────────────────────────────────────────────────
 
-  async createAdSet(campaignId: string, plan: AdSetConfig, campaignObjective?: string, dailyBudgetCents?: number): Promise<PlatformEntity> {
+  async createAdSet(campaignId: string, plan: AdSetConfig, campaignObjective?: string, _dailyBudgetCents?: number): Promise<PlatformEntity> {
     // Start time: tomorrow at midnight UTC
     const tomorrow = new Date();
     tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
@@ -241,6 +286,15 @@ export class RealMetaAdapter implements PlatformAdapter {
       start_time: tomorrow.toISOString(),
     };
 
+    // Add pixel promoted_object for OUTCOME_SALES campaigns when pixel is configured
+    const mappedObjective = mapObjective(campaignObjective || 'TRAFFIC', !!this.pixelId);
+    if (this.pixelId && mappedObjective === 'OUTCOME_SALES') {
+      adSetBody.promoted_object = {
+        pixel_id: this.pixelId,
+        custom_event_type: 'PURCHASE',
+      };
+    }
+
     // No ad set budget — campaign uses CBO (daily_budget + bid_strategy set at campaign level)
     console.log('[Meta] createAdSet body:', JSON.stringify(adSetBody, null, 2));
 
@@ -266,6 +320,28 @@ export class RealMetaAdapter implements PlatformAdapter {
   async createAd(adSetId: string, plan: AdConfig): Promise<PlatformEntity> {
     const linkUrl = this.businessWebsiteUrl || 'https://example.com';
 
+    // Resolve the creative image URL.
+    // Priority: (1) creative_asset_id when it's a full URL (Google Drive / AI-generated content — future),
+    //           (2) omit picture and let Meta scrape the link's OG image as a fallback.
+    const imageUrl: string | null =
+      plan.creative_asset_id && plan.creative_asset_id.startsWith('http')
+        ? plan.creative_asset_id
+        : null;
+
+    const linkData: Record<string, unknown> = {
+      message: plan.primary_text,
+      name: plan.headline,
+      description: plan.description,
+      link: linkUrl,
+      call_to_action: {
+        type: normalizeCta(plan.call_to_action),
+      },
+    };
+
+    if (imageUrl) {
+      linkData.picture = imageUrl;
+    }
+
     // Step 1: Create AdCreative
     const creative = await this.metaFetch<{ id: string }>(
       `/${this.adAccountId}/adcreatives`,
@@ -275,15 +351,7 @@ export class RealMetaAdapter implements PlatformAdapter {
           name: `Creative - ${plan.name}`,
           object_story_spec: {
             page_id: this.pageId,
-            link_data: {
-              message: plan.primary_text,
-              name: plan.headline,
-              description: plan.description,
-              link: linkUrl,
-              call_to_action: {
-                type: plan.call_to_action.toUpperCase().replace(/ /g, '_'),
-              },
-            },
+            link_data: linkData,
           },
         },
       },

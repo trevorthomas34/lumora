@@ -12,7 +12,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Progress } from "@/components/ui/progress";
 import { BUSINESS_GOALS, BRAND_TONES } from "@/lib/constants";
 import { isDemoMode } from "@/lib/utils";
-import { ArrowLeft, ArrowRight, Check, Sparkles, Loader2, AlertTriangle, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, Sparkles, Loader2, AlertTriangle, X, Rocket } from "lucide-react";
 import { getOAuthError } from "@/lib/oauth/errors";
 
 const STEPS = [
@@ -26,6 +26,7 @@ const STEPS = [
 export default function OnboardingPage() {
   const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [kickstarting, setKickstarting] = useState(false);
   const [connecting, setConnecting] = useState<string | null>(null);
   const [connectError, setConnectError] = useState<string | null>(null);
   const router = useRouter();
@@ -82,12 +83,29 @@ export default function OnboardingPage() {
 
       if (error) throw error;
 
+      // Kickstart: auto-generate brand brief + campaign plan
+      setKickstarting(true);
+      const { data: biz } = await supabase.from("businesses").select("id").eq("user_id", user.id).single();
+      if (biz) {
+        const kickRes = await fetch("/api/campaigns/kickstart", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ businessId: biz.id }),
+        });
+        if (kickRes.ok) {
+          const { planId } = await kickRes.json();
+          router.push(`/campaigns/${planId}?generated=true`);
+          return;
+        }
+      }
+
       router.push("/dashboard");
       router.refresh();
     } catch (err) {
       console.error("Onboarding error:", err);
     } finally {
       setLoading(false);
+      setKickstarting(false);
     }
   };
 
@@ -355,9 +373,14 @@ export default function OnboardingPage() {
                 Next <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
             ) : (
-              <Button variant="lumora" onClick={handleComplete} disabled={loading || !canProceed()}>
-                {loading ? "Setting up..." : "Complete Setup"}
-                <Check className="ml-2 h-4 w-4" />
+              <Button variant="lumora" onClick={handleComplete} disabled={loading || kickstarting || !canProceed()}>
+                {kickstarting ? (
+                  <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Building your first campaign...</>
+                ) : loading ? (
+                  <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Setting up...</>
+                ) : (
+                  <>Complete Setup <Rocket className="ml-2 h-4 w-4" /></>
+                )}
               </Button>
             )}
           </div>

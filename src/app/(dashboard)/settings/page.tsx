@@ -18,7 +18,7 @@ export default async function SettingsPage() {
 
   const { data: connections } = await supabase
     .from("connections")
-    .select("id, platform, status, platform_account_id, platform_account_name, updated_at")
+    .select("id, platform, status, platform_account_id, platform_account_name, pixel_id, updated_at")
     .eq("business_id", business.id);
 
   return (

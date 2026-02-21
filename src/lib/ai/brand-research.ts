@@ -52,8 +52,8 @@ export async function generateBrandBrief(business: Business): Promise<BrandBrief
   });
 
   const message = await client.messages.create({
-    model: 'claude-sonnet-4-5-20250929',
-    max_tokens: 2000,
+    model: 'claude-sonnet-4-6',
+    max_tokens: 4000,
     system: BRAND_RESEARCH_SYSTEM_PROMPT,
     messages: [{ role: 'user', content: prompt }],
   });
@@ -111,19 +111,32 @@ function getDemoBrandBrief(businessName: string): BrandBriefData {
     competitive_positioning: `Unlike larger competitors, ${businessName} offers a personalized, hands-on approach where every customer matters. Our expertise and attention to detail set us apart in a market full of one-size-fits-all solutions.`,
     recommended_angles: [
       {
-        name: 'Social Proof',
+        name: 'Social Proof — Customer Trust',
+        framework: 'Social Proof',
         hook: 'See why hundreds of customers choose us over the big guys',
         description: 'Lead with customer testimonials and results to build trust',
+        draft_primary_text: `Join 500+ customers who made the switch to ${businessName}. Real results, real people — see their stories.`,
       },
       {
-        name: 'Problem-Solution',
-        hook: 'Tired of [common pain point]? There\'s a better way.',
+        name: 'PAS — Common Pain Point',
+        framework: 'PAS',
+        hook: `Frustrated with impersonal service that doesn't deliver?`,
         description: 'Address the top pain point directly and position as the solution',
+        draft_primary_text: `Tired of agencies that overpromise and underdeliver? ${businessName} is different. We guarantee results or you don't pay.`,
       },
       {
-        name: 'Behind the Scenes',
-        hook: 'Here\'s what goes into every [product/service] we deliver',
-        description: 'Show the care and expertise behind the brand to differentiate from commodity competitors',
+        name: 'Direct Offer — Free Consultation',
+        framework: 'Direct Offer',
+        hook: 'Get a free 30-min strategy session — no pitch, just clarity',
+        description: 'Low-friction entry point that gets prospects on the phone',
+        draft_primary_text: `Free 30-min call with our team. We'll audit your current situation and tell you exactly what we'd do differently. No obligation.`,
+      },
+      {
+        name: 'Before/After — Transformation',
+        framework: 'Before/After',
+        hook: `Here's what changes when you work with ${businessName}`,
+        description: 'Show the specific transformation this audience wants to experience',
+        draft_primary_text: `Before: frustrated, stuck, paying for results that never come. After: clear strategy, consistent results, finally moving forward. That's ${businessName}.`,
       },
     ],
   };

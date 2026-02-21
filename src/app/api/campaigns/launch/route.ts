@@ -66,6 +66,11 @@ export async function POST(request: Request) {
       if (business?.website_url) {
         (adapter as RealMetaAdapter).businessWebsiteUrl = business.website_url;
       }
+
+      // Pass pixel ID for OUTCOME_SALES campaigns (enables conversion tracking)
+      if (connection.pixel_id) {
+        (adapter as RealMetaAdapter).pixelId = connection.pixel_id;
+      }
     }
 
     for (const campaign of plan.plan_data.campaigns as CampaignConfig[]) {
