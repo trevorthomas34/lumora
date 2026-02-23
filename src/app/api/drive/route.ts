@@ -45,7 +45,7 @@ export async function POST(request: Request) {
           thumbnail_url: thumbnailUrl,
           file_url: file.webViewLink,
           file_size: file.size,
-          selected: false,
+          // Do NOT include `selected` here — preserve existing selection on re-import
         },
         { onConflict: "business_id,drive_file_id" }
       );

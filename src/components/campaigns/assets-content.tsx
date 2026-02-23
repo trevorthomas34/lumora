@@ -8,7 +8,6 @@ import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Loader } from "@/components/shared/loader";
 import { Image as ImageIcon, Check, HardDrive, Folder, FolderOpen, ChevronRight, X, RefreshCw } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
 import type { CreativeAsset } from "@/types";
 
 interface DriveFolder {
@@ -38,7 +37,6 @@ export function AssetsContent({ businessId, assets, driveConnected }: AssetsCont
   const [folderError, setFolderError] = useState<string | null>(null);
 
   const router = useRouter();
-  const supabase = createClient();
 
   const isRealMode = process.env.NEXT_PUBLIC_DEMO_MODE !== "true";
 
@@ -110,16 +108,24 @@ export function AssetsContent({ businessId, assets, driveConnected }: AssetsCont
   const toggleAsset = async (assetId: string) => {
     const newSelected = new Set(selectedAssets);
     const isSelected = newSelected.has(assetId);
-    if (isSelected) {
-      newSelected.delete(assetId);
-    } else {
+    const nextSelected = !isSelected;
+    if (nextSelected) {
       newSelected.add(assetId);
+    } else {
+      newSelected.delete(assetId);
     }
-    setSelectedAssets(newSelected);
-    await supabase
-      .from("creative_assets")
-      .update({ selected: !isSelected })
-      .eq("id", assetId);
+    setSelectedAssets(newSelected); // optimistic update
+    try {
+      const res = await fetch("/api/assets/select", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assetId, selected: nextSelected }),
+      });
+      if (!res.ok) throw new Error("Failed to save selection");
+    } catch {
+      // Revert optimistic update on failure
+      setSelectedAssets(selectedAssets);
+    }
   };
 
   const formatFileSize = (bytes: number | null) => {
