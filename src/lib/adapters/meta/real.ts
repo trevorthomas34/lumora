@@ -315,18 +315,41 @@ export class RealMetaAdapter implements PlatformAdapter {
     };
   }
 
+  // ── Upload image bytes to Meta Ad Images ─────────────────────────
+
+  async uploadImageBytes(imageBuffer: Buffer, filename: string): Promise<string> {
+    const formData = new FormData();
+    const blob = new Blob([new Uint8Array(imageBuffer)]);
+    formData.append(filename, blob, filename);
+
+    const res = await fetch(`${META_API_BASE}/${this.adAccountId}/adimages`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${this.accessToken}` },
+      body: formData,
+    });
+
+    const data = await res.json();
+    if (!res.ok || data.error) {
+      const err = data.error || {};
+      console.error('[Meta] Image upload error:', JSON.stringify(data, null, 2));
+      throw new MetaApiError(
+        err.message || `Image upload failed: ${res.status}`,
+        err.code ?? res.status,
+        err.type ?? 'UploadError',
+        err.error_subcode,
+      );
+    }
+
+    const images = data.images as Record<string, { hash: string; url: string }>;
+    const first = Object.values(images)[0];
+    if (!first?.hash) throw new Error('No image hash returned from Meta adimages');
+    return first.hash;
+  }
+
   // ── Create Ad (two-step: creative + ad) ──────────────────────────
 
   async createAd(adSetId: string, plan: AdConfig): Promise<PlatformEntity> {
     const linkUrl = this.businessWebsiteUrl || 'https://example.com';
-
-    // Resolve the creative image URL.
-    // Priority: (1) creative_asset_id when it's a full URL (Google Drive / AI-generated content — future),
-    //           (2) omit picture and let Meta scrape the link's OG image as a fallback.
-    const imageUrl: string | null =
-      plan.creative_asset_id && plan.creative_asset_id.startsWith('http')
-        ? plan.creative_asset_id
-        : null;
 
     const linkData: Record<string, unknown> = {
       message: plan.primary_text,
@@ -338,8 +361,11 @@ export class RealMetaAdapter implements PlatformAdapter {
       },
     };
 
-    if (imageUrl) {
-      linkData.picture = imageUrl;
+    // Priority: (1) Meta image hash from pre-uploaded Drive asset, (2) direct URL fallback
+    if (plan.imageHash) {
+      linkData.image_hash = plan.imageHash;
+    } else if (plan.creative_asset_id && plan.creative_asset_id.startsWith('http')) {
+      linkData.picture = plan.creative_asset_id;
     }
 
     // Step 1: Create AdCreative

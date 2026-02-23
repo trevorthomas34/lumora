@@ -73,6 +73,56 @@ export async function POST(request: Request) {
       }
     }
 
+    // Pre-upload selected Drive assets to Meta and build a hash map (driveFileId → imageHash)
+    const assetHashMap = new Map<string, string>();
+    if (!isDemoMode) {
+      const serviceClient = createServiceRoleClient();
+
+      const { data: selectedAssets } = await serviceClient
+        .from("creative_assets")
+        .select("*")
+        .eq("business_id", businessId)
+        .eq("selected", true);
+
+      if (selectedAssets && selectedAssets.length > 0) {
+        const { data: driveConnection } = await serviceClient
+          .from("connections")
+          .select("*")
+          .eq("business_id", businessId)
+          .eq("platform", "google_drive")
+          .eq("status", "active")
+          .single();
+
+        if (driveConnection) {
+          const driveTokens = await getValidTokens(driveConnection);
+
+          for (const asset of selectedAssets) {
+            if (!asset.drive_file_id) continue;
+            try {
+              const imgRes = await fetch(
+                `https://www.googleapis.com/drive/v3/files/${asset.drive_file_id}?alt=media`,
+                { headers: { Authorization: `Bearer ${driveTokens.access_token}` } }
+              );
+              if (!imgRes.ok) {
+                console.warn(`[Launch] Could not download Drive asset ${asset.file_name}: ${imgRes.status}`);
+                continue;
+              }
+              const buffer = Buffer.from(await imgRes.arrayBuffer());
+              const hash = await (adapter as RealMetaAdapter).uploadImageBytes(buffer, asset.file_name);
+              assetHashMap.set(asset.drive_file_id, hash);
+              console.log(`[Launch] Uploaded asset "${asset.file_name}" → hash ${hash}`);
+            } catch (err) {
+              console.warn(`[Launch] Failed to upload asset ${asset.file_name}:`, err);
+            }
+          }
+        }
+      }
+    }
+
+    // Round-robin index for assigning assets to ads
+    const hashValues = Array.from(assetHashMap.values());
+    let assetIndex = 0;
+
     for (const campaign of plan.plan_data.campaigns as CampaignConfig[]) {
       let platformCampaignId: string;
       try {
@@ -151,7 +201,17 @@ export async function POST(request: Request) {
 
         for (const ad of adSet.ads) {
           try {
-            const platformAd = await adapter.createAd(platformAdSetId, ad);
+            // Attach image hash: prefer asset explicitly assigned to ad, else round-robin from selected assets
+            const adWithImage = { ...ad };
+            if (assetHashMap.size > 0) {
+              if (ad.creative_asset_id && assetHashMap.has(ad.creative_asset_id)) {
+                adWithImage.imageHash = assetHashMap.get(ad.creative_asset_id);
+              } else if (hashValues.length > 0) {
+                adWithImage.imageHash = hashValues[assetIndex % hashValues.length];
+                assetIndex++;
+              }
+            }
+            const platformAd = await adapter.createAd(platformAdSetId, adWithImage);
 
             await supabase.from("campaign_entities").insert({
               business_id: businessId,

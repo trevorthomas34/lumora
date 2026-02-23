@@ -163,6 +163,7 @@ export interface AdConfig {
   call_to_action: string;
   creative_asset_id: string | null;
   variants: AdVariant[];
+  imageHash?: string; // Meta image hash — set at launch time after uploading from Drive
 }
 
 export interface AdVariant {

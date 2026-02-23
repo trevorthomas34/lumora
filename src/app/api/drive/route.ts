@@ -1,4 +1,4 @@
-import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { createServerSupabaseClient, createServiceRoleClient } from "@/lib/supabase/server";
 import { getDriveAdapter } from "@/lib/adapters/types";
 import { getValidTokens } from "@/lib/oauth/tokens";
 import { NextResponse } from "next/server";
@@ -76,8 +76,25 @@ export async function GET(request: Request) {
     }
 
     const adapter = getDriveAdapter();
-    const folders = await adapter.listFolders(parentId);
 
+    if (process.env.NEXT_PUBLIC_DEMO_MODE !== "true") {
+      const supabase = createServiceRoleClient();
+      const { data: connection } = await supabase
+        .from("connections")
+        .select("*")
+        .eq("business_id", businessId)
+        .eq("platform", "google_drive")
+        .single();
+
+      if (!connection) {
+        return NextResponse.json({ error: "Google Drive not connected" }, { status: 400 });
+      }
+
+      const tokens = await getValidTokens(connection);
+      await adapter.connect(tokens);
+    }
+
+    const folders = await adapter.listFolders(parentId);
     return NextResponse.json({ folders });
   } catch {
     return NextResponse.json({ error: "Failed to list folders" }, { status: 500 });

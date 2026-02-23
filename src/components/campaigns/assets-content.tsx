@@ -7,9 +7,15 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Loader } from "@/components/shared/loader";
-import { Image as ImageIcon, Check, HardDrive } from "lucide-react";
+import { Image as ImageIcon, Check, HardDrive, Folder, FolderOpen, ChevronRight, X, RefreshCw } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import type { CreativeAsset } from "@/types";
+
+interface DriveFolder {
+  id: string;
+  name: string;
+  path: string;
+}
 
 interface AssetsContentProps {
   businessId: string;
@@ -22,13 +28,78 @@ export function AssetsContent({ businessId, assets, driveConnected }: AssetsCont
   const [selectedAssets, setSelectedAssets] = useState<Set<string>>(
     new Set(assets.filter((a) => a.selected).map((a) => a.id))
   );
+
+  // Folder picker state
+  const [showFolderPicker, setShowFolderPicker] = useState(false);
+  const [folders, setFolders] = useState<DriveFolder[]>([]);
+  const [loadingFolders, setLoadingFolders] = useState(false);
+  const [folderBreadcrumb, setFolderBreadcrumb] = useState<{ id: string; name: string }[]>([]);
+  const [selectedFolder, setSelectedFolder] = useState<{ id: string; name: string } | null>(null);
+  const [folderError, setFolderError] = useState<string | null>(null);
+
   const router = useRouter();
   const supabase = createClient();
+
+  const isRealMode = process.env.NEXT_PUBLIC_DEMO_MODE !== "true";
+
+  const fetchFolders = async (parentId?: string) => {
+    setLoadingFolders(true);
+    setFolderError(null);
+    try {
+      const params = new URLSearchParams({ businessId });
+      if (parentId) params.set("parentId", parentId);
+      const res = await fetch(`/api/drive?${params}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to load folders");
+      setFolders(data.folders || []);
+    } catch (err) {
+      setFolderError(err instanceof Error ? err.message : "Failed to load folders");
+    } finally {
+      setLoadingFolders(false);
+    }
+  };
+
+  const handleOpenFolderPicker = async () => {
+    setShowFolderPicker(true);
+    setFolderBreadcrumb([]);
+    await fetchFolders();
+  };
+
+  const handleNavigateInto = async (folder: DriveFolder) => {
+    setFolderBreadcrumb((prev) => [...prev, { id: folder.id, name: folder.name }]);
+    await fetchFolders(folder.id);
+  };
+
+  const handleBreadcrumbClick = async (index: number) => {
+    const newCrumb = folderBreadcrumb.slice(0, index + 1);
+    setFolderBreadcrumb(newCrumb);
+    const parentId = newCrumb.length > 0 ? newCrumb[newCrumb.length - 1].id : undefined;
+    await fetchFolders(parentId);
+  };
+
+  const handleBreadcrumbRoot = async () => {
+    setFolderBreadcrumb([]);
+    await fetchFolders();
+  };
+
+  const handleSelectFolder = (folder: DriveFolder) => {
+    const current = folderBreadcrumb.length > 0
+      ? folderBreadcrumb[folderBreadcrumb.length - 1]
+      : { id: folder.id, name: folder.name };
+    setSelectedFolder({ id: folder.id, name: folder.name });
+    setShowFolderPicker(false);
+    // Clear breadcrumb back — the selected folder is now the active one
+    void current;
+  };
 
   const handleImportFromDrive = async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/drive", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ businessId }) });
+      const res = await fetch("/api/drive", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ businessId, folderId: selectedFolder?.id }),
+      });
       if (!res.ok) throw new Error("Failed to import");
       router.refresh();
     } finally {
@@ -45,7 +116,6 @@ export function AssetsContent({ businessId, assets, driveConnected }: AssetsCont
       newSelected.add(assetId);
     }
     setSelectedAssets(newSelected);
-
     await supabase
       .from("creative_assets")
       .update({ selected: !isSelected })
@@ -76,21 +146,134 @@ export function AssetsContent({ businessId, assets, driveConnected }: AssetsCont
             {selectedAssets.size} of {assets.length} assets selected for campaigns
           </p>
         </div>
-        <Button variant="outline" onClick={handleImportFromDrive} disabled={!driveConnected && process.env.NEXT_PUBLIC_DEMO_MODE !== "true"}>
-          <HardDrive className="mr-2 h-4 w-4" /> Import from Drive
-        </Button>
+
+        {/* Drive import controls */}
+        {(driveConnected || !isRealMode) && (
+          <div className="flex items-center gap-2">
+            {selectedFolder ? (
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5 text-sm border border-border/50 rounded-md px-3 py-1.5 bg-muted/20">
+                  <FolderOpen className="h-3.5 w-3.5 text-primary" />
+                  <span className="text-foreground">{selectedFolder.name}</span>
+                  <button
+                    onClick={() => setSelectedFolder(null)}
+                    className="ml-1 text-muted-foreground hover:text-foreground"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+                <Button variant="outline" size="sm" onClick={handleOpenFolderPicker}>
+                  Change
+                </Button>
+                <Button size="sm" onClick={handleImportFromDrive}>
+                  <HardDrive className="mr-2 h-4 w-4" /> Import from folder
+                </Button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={handleOpenFolderPicker}>
+                  <Folder className="mr-2 h-4 w-4" /> Select Drive Folder
+                </Button>
+                <Button variant="outline" size="sm" onClick={handleImportFromDrive}>
+                  <HardDrive className="mr-2 h-4 w-4" /> Import from root
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
+
+      {/* Folder picker panel */}
+      {showFolderPicker && (
+        <div className="border border-border/50 rounded-lg bg-card p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+              <button
+                onClick={handleBreadcrumbRoot}
+                className="hover:text-foreground transition-colors"
+              >
+                My Drive
+              </button>
+              {folderBreadcrumb.map((crumb, i) => (
+                <span key={crumb.id} className="flex items-center gap-1.5">
+                  <ChevronRight className="h-3 w-3" />
+                  <button
+                    onClick={() => handleBreadcrumbClick(i)}
+                    className="hover:text-foreground transition-colors"
+                  >
+                    {crumb.name}
+                  </button>
+                </span>
+              ))}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  const parentId = folderBreadcrumb.length > 0
+                    ? folderBreadcrumb[folderBreadcrumb.length - 1].id
+                    : undefined;
+                  fetchFolders(parentId);
+                }}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+              </button>
+              <button
+                onClick={() => setShowFolderPicker(false)}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+
+          {loadingFolders ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
+              <RefreshCw className="h-4 w-4 animate-spin" /> Loading folders...
+            </div>
+          ) : folderError ? (
+            <p className="text-sm text-destructive">{folderError}</p>
+          ) : folders.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-2">No folders found at this level.</p>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+              {folders.map((folder) => (
+                <div key={folder.id} className="flex flex-col gap-1">
+                  <button
+                    onClick={() => handleSelectFolder(folder)}
+                    className="flex items-center gap-2 p-2.5 rounded-md border border-border/50 hover:border-primary/50 hover:bg-primary/5 transition-all text-left group"
+                  >
+                    <Folder className="h-4 w-4 text-amber-400 shrink-0" />
+                    <span className="text-sm truncate">{folder.name}</span>
+                  </button>
+                  <button
+                    onClick={() => handleNavigateInto(folder)}
+                    className="text-[10px] text-muted-foreground hover:text-primary text-center transition-colors"
+                  >
+                    Browse subfolders →
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <p className="text-xs text-muted-foreground">
+            Click a folder to select it for import, or &quot;Browse subfolders&quot; to navigate inside.
+          </p>
+        </div>
+      )}
 
       {assets.length === 0 ? (
         <EmptyState
           icon={ImageIcon}
           title="No Assets Yet"
-          description={driveConnected
-            ? "Import images and videos from your Google Drive to use in campaigns."
-            : "Connect Google Drive in Settings to import your creative assets."
+          description={
+            driveConnected
+              ? "Select a Drive folder and import images or videos to use in your campaigns."
+              : "Connect Google Drive in Settings to import your creative assets."
           }
-          actionLabel={driveConnected ? "Import from Drive" : "Go to Settings"}
-          onAction={driveConnected ? handleImportFromDrive : () => router.push("/settings")}
+          actionLabel={driveConnected ? "Select Drive Folder" : "Go to Settings"}
+          onAction={driveConnected ? handleOpenFolderPicker : () => router.push("/settings")}
         />
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
@@ -107,6 +290,7 @@ export function AssetsContent({ businessId, assets, driveConnected }: AssetsCont
                 <CardContent className="p-3">
                   <div className="aspect-square bg-muted rounded-md mb-2 flex items-center justify-center relative overflow-hidden">
                     {asset.thumbnail_url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
                       <img
                         src={asset.thumbnail_url}
                         alt={asset.file_name}
