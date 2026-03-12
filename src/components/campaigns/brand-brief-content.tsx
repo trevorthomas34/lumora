@@ -44,7 +44,10 @@ export function BrandBriefContent({ business, brandBrief }: BrandBriefContentPro
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ businessId: business.id }),
       });
-      if (!res.ok) throw new Error("Failed to generate brand brief");
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `Server error ${res.status}`);
+      }
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
