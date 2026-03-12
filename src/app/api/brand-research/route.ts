@@ -52,8 +52,9 @@ export async function POST(request: Request) {
 
     return NextResponse.json(brief);
   } catch (error) {
-    console.error("Brand research error:", error);
-    return NextResponse.json({ error: "Failed to generate brand brief" }, { status: 500 });
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("Brand research error:", message);
+    return NextResponse.json({ error: `Failed to generate brand brief: ${message}` }, { status: 500 });
   }
 }
 

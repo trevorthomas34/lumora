@@ -8,7 +8,7 @@ export async function scrapeWebsite(url: string): Promise<string> {
     const normalizedUrl = url.startsWith('http') ? url : `https://${url}`;
     const response = await fetch(normalizedUrl, {
       headers: { 'User-Agent': 'LumoraAI Bot/1.0' },
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(5000),
     });
     const html = await response.text();
     const $ = cheerio.load(html);
