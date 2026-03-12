@@ -2,8 +2,19 @@ import { createServiceRoleClient } from "@/lib/supabase/server";
 import { runDailySync } from "@/lib/engine/sync";
 import { NextResponse } from "next/server";
 
+function verifyCronSecret(request: Request): boolean {
+  const secret = process.env.CRON_SECRET;
+  if (!secret) return true; // not configured — allow (dev mode)
+  const authHeader = request.headers.get("Authorization");
+  return authHeader === `Bearer ${secret}`;
+}
+
 export async function POST(request: Request) {
   try {
+    if (!verifyCronSecret(request)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     // Verify cron secret or manual trigger
     const { businessId } = await request.json().catch(() => ({ businessId: null }));
 
@@ -22,7 +33,11 @@ export async function POST(request: Request) {
 }
 
 // GET endpoint for cron job triggers
-export async function GET() {
+export async function GET(request: Request) {
+  if (!verifyCronSecret(request)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   try {
     const supabase = createServiceRoleClient();
 

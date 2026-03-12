@@ -2,9 +2,9 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { formatCurrency, formatNumber } from "@/lib/utils";
-import { DollarSign, Eye, MousePointer, Target, TrendingUp, Activity, ArrowRight, Sparkles } from "lucide-react";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { formatCurrency, formatNumber, cn } from "@/lib/utils";
+import { DollarSign, Eye, MousePointer, Target, TrendingUp, Activity, ArrowRight, Sparkles, Rocket } from "lucide-react";
 import type { Business, PerformanceSnapshot, Recommendation, ActionLog } from "@/types";
 import { MetricsChart } from "./metrics-chart";
 import Link from "next/link";
@@ -67,6 +67,8 @@ export function DashboardContent({ business, snapshots, recommendations, recentA
     { label: "ROAS", value: `${metrics.roas.toFixed(2)}x`, icon: Activity, color: "text-pink-400" },
   ];
 
+  const isNewUser = snapshots.length === 0 && recentActions.length === 0;
+
   return (
     <div className="space-y-6">
       {/* Welcome */}
@@ -76,6 +78,24 @@ export function DashboardContent({ business, snapshots, recommendations, recentA
         </h2>
         <p className="text-muted-foreground">Here&apos;s how your campaigns are performing.</p>
       </div>
+
+      {/* New-user onboarding prompt */}
+      {isNewUser && (
+        <Card className="border-primary/30 bg-primary/5">
+          <CardContent className="p-6 flex flex-col sm:flex-row items-start sm:items-center gap-4">
+            <Rocket className="h-8 w-8 text-primary shrink-0" />
+            <div className="flex-1">
+              <p className="font-semibold">Launch your first campaign</p>
+              <p className="text-sm text-muted-foreground mt-0.5">
+                Generate an AI-powered brand brief and campaign plan to start advertising on Meta.
+              </p>
+            </div>
+            <Link href="/brand-brief" className={cn(buttonVariants({ variant: "lumora" }))}>
+              Get started <ArrowRight className="ml-1 h-4 w-4" />
+            </Link>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Metric Cards */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">

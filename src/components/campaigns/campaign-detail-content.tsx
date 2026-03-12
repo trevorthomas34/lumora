@@ -48,6 +48,10 @@ export function CampaignDetailContent({ plan: initialPlan, businessId }: Campaig
   const [editingBudgetId, setEditingBudgetId] = useState<string | null>(null);
   const [editBudgetValue, setEditBudgetValue] = useState("");
   const [savingBudget, setSavingBudget] = useState(false);
+  const [savedBudgetId, setSavedBudgetId] = useState<string | null>(null);
+
+  // Ad copy validation error
+  const [adEditError, setAdEditError] = useState<string | null>(null);
 
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -100,6 +104,7 @@ export function CampaignDetailContent({ plan: initialPlan, businessId }: Campaig
   // ── Approve + Launch (merged) ─────────────────────────────────────
 
   const handleApproveAndLaunch = async () => {
+    if (!window.confirm("Launch these campaigns to Meta? This will begin spending your ad budget.")) return;
     setLaunching(true);
     setError(null);
     try {
@@ -138,6 +143,7 @@ export function CampaignDetailContent({ plan: initialPlan, businessId }: Campaig
   // ── Standalone launch (for already-approved plans) ────────────────
 
   const handleLaunch = async () => {
+    if (!window.confirm("Launch these campaigns to Meta? This will begin spending your ad budget.")) return;
     setLaunching(true);
     setError(null);
     try {
@@ -185,6 +191,7 @@ export function CampaignDetailContent({ plan: initialPlan, businessId }: Campaig
   // ── Inline ad editing ────────────────────────────────────────────
 
   const startEditAd = (ad: AdConfig) => {
+    setAdEditError(null);
     setEditingAdId(ad.temp_id);
     setEditValues({
       primary_text: ad.primary_text,
@@ -200,6 +207,14 @@ export function CampaignDetailContent({ plan: initialPlan, businessId }: Campaig
   };
 
   const saveEditAd = async (campaignIdx: number, adSetIdx: number, adIdx: number) => {
+    setAdEditError(null);
+    const primaryText = editValues.primary_text?.trim() ?? "";
+    const headline = editValues.headline?.trim() ?? "";
+    if (!primaryText) { setAdEditError("Primary text is required."); return; }
+    if (!headline) { setAdEditError("Headline is required."); return; }
+    if (primaryText.length > 125) { setAdEditError("Primary text must be 125 characters or fewer."); return; }
+    if (headline.length > 40) { setAdEditError("Headline must be 40 characters or fewer."); return; }
+    if ((editValues.description?.length ?? 0) > 30) { setAdEditError("Description must be 30 characters or fewer."); return; }
     setSavingAd(true);
     try {
       const updatedPlanData = JSON.parse(JSON.stringify(plan.plan_data));
@@ -232,10 +247,13 @@ export function CampaignDetailContent({ plan: initialPlan, businessId }: Campaig
   };
 
   const saveEditBudget = async (campaignIdx: number) => {
+    const value = parseFloat(editBudgetValue);
+    if (!value || value < 1) return;
     setSavingBudget(true);
+    const tempId = plan.plan_data.campaigns[campaignIdx].temp_id;
     try {
       const updatedPlanData = JSON.parse(JSON.stringify(plan.plan_data));
-      updatedPlanData.campaigns[campaignIdx].daily_budget = parseFloat(editBudgetValue) || 0;
+      updatedPlanData.campaigns[campaignIdx].daily_budget = value;
 
       await supabase
         .from("campaign_plans")
@@ -245,6 +263,8 @@ export function CampaignDetailContent({ plan: initialPlan, businessId }: Campaig
       setPlan((prev) => ({ ...prev, plan_data: updatedPlanData }));
       setEditingBudgetId(null);
       setEditBudgetValue("");
+      setSavedBudgetId(tempId);
+      setTimeout(() => setSavedBudgetId(null), 2000);
     } finally {
       setSavingBudget(false);
     }
@@ -412,6 +432,7 @@ export function CampaignDetailContent({ plan: initialPlan, businessId }: Campaig
                       <Input
                         className="h-7 w-20 text-sm"
                         type="number"
+                        min="1"
                         value={editBudgetValue}
                         onChange={(e) => setEditBudgetValue(e.target.value)}
                         autoFocus
@@ -435,13 +456,18 @@ export function CampaignDetailContent({ plan: initialPlan, businessId }: Campaig
                       </Button>
                     </div>
                   ) : (
-                    <button
-                      className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground group"
-                      onClick={() => startEditBudget(campaign)}
-                    >
-                      ${campaign.daily_budget}/day
-                      <Pencil className="h-3 w-3 opacity-0 group-hover:opacity-50 transition-opacity" />
-                    </button>
+                    <>
+                      <button
+                        className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground group"
+                        onClick={() => startEditBudget(campaign)}
+                      >
+                        ${campaign.daily_budget}/day
+                        <Pencil className="h-3 w-3 opacity-0 group-hover:opacity-50 transition-opacity" />
+                      </button>
+                      {savedBudgetId === campaign.temp_id && (
+                        <span className="text-xs text-green-500">Saved</span>
+                      )}
+                    </>
                   )}
                 </div>
               </div>
@@ -501,7 +527,12 @@ export function CampaignDetailContent({ plan: initialPlan, businessId }: Campaig
                               {editingAdId === ad.temp_id ? (
                                 <div className="space-y-2">
                                   <div>
-                                    <label className="text-xs text-muted-foreground">Primary Text</label>
+                                    <div className="flex items-center justify-between">
+                                      <label className="text-xs text-muted-foreground">Primary Text</label>
+                                      <span className={`text-[10px] ${(editValues.primary_text?.length ?? 0) > 125 ? "text-destructive" : (editValues.primary_text?.length ?? 0) > 100 ? "text-amber-400" : "text-muted-foreground"}`}>
+                                        {editValues.primary_text?.length ?? 0}/125
+                                      </span>
+                                    </div>
                                     <Textarea
                                       className="text-sm mt-1 min-h-[80px]"
                                       value={editValues.primary_text || ""}
@@ -509,7 +540,12 @@ export function CampaignDetailContent({ plan: initialPlan, businessId }: Campaig
                                     />
                                   </div>
                                   <div>
-                                    <label className="text-xs text-muted-foreground">Headline</label>
+                                    <div className="flex items-center justify-between">
+                                      <label className="text-xs text-muted-foreground">Headline</label>
+                                      <span className={`text-[10px] ${(editValues.headline?.length ?? 0) > 40 ? "text-destructive" : (editValues.headline?.length ?? 0) > 32 ? "text-amber-400" : "text-muted-foreground"}`}>
+                                        {editValues.headline?.length ?? 0}/40
+                                      </span>
+                                    </div>
                                     <Input
                                       className="text-sm mt-1"
                                       value={editValues.headline || ""}
@@ -517,7 +553,12 @@ export function CampaignDetailContent({ plan: initialPlan, businessId }: Campaig
                                     />
                                   </div>
                                   <div>
-                                    <label className="text-xs text-muted-foreground">Description</label>
+                                    <div className="flex items-center justify-between">
+                                      <label className="text-xs text-muted-foreground">Description</label>
+                                      <span className={`text-[10px] ${(editValues.description?.length ?? 0) > 30 ? "text-destructive" : (editValues.description?.length ?? 0) > 24 ? "text-amber-400" : "text-muted-foreground"}`}>
+                                        {editValues.description?.length ?? 0}/30
+                                      </span>
+                                    </div>
                                     <Input
                                       className="text-sm mt-1"
                                       value={editValues.description || ""}
@@ -532,6 +573,9 @@ export function CampaignDetailContent({ plan: initialPlan, businessId }: Campaig
                                       onChange={(e) => setEditValues((v) => ({ ...v, call_to_action: e.target.value }))}
                                     />
                                   </div>
+                                  {adEditError && (
+                                    <p className="text-xs text-destructive">{adEditError}</p>
+                                  )}
                                   <div className="flex gap-2 pt-1">
                                     <Button
                                       variant="lumora"

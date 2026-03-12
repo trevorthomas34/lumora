@@ -65,6 +65,24 @@ export async function PATCH(request: Request) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+    // Verify the brief belongs to a business owned by this user
+    const { data: brief } = await supabase
+      .from("brand_briefs")
+      .select("business_id")
+      .eq("id", briefId)
+      .single();
+
+    if (!brief) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+    const { data: business } = await supabase
+      .from("businesses")
+      .select("id")
+      .eq("id", brief.business_id)
+      .eq("user_id", user.id)
+      .single();
+
+    if (!business) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
     const { error } = await supabase
       .from("brand_briefs")
       .update({ status })
