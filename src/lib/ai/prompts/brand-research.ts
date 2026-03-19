@@ -168,9 +168,22 @@ export function buildBrandResearchPrompt(
     brand_voice: string | null;
     competitors: string[];
     tone: string | null;
+    target_age_ranges?: string[];
+    target_gender?: string | null;
+    target_customer_description?: string | null;
   }
 ): string {
   const hasWebsite = websiteContent && websiteContent.length > 50 && !websiteContent.includes('could not be scraped');
+
+  const ageHint = businessConfig.target_age_ranges?.length
+    ? businessConfig.target_age_ranges.join(', ')
+    : null;
+  const genderMap: Record<string, string> = {
+    all: 'All genders',
+    primarily_men: 'Primarily men',
+    primarily_women: 'Primarily women',
+  };
+  const genderHint = businessConfig.target_gender ? genderMap[businessConfig.target_gender] ?? null : null;
 
   return `Analyze this business and generate a comprehensive performance marketing brand brief.
 
@@ -183,6 +196,9 @@ export function buildBrandResearchPrompt(
 **Known Competitors:** ${businessConfig.competitors.join(', ') || 'Not specified — infer from industry'}
 **Brand Voice Preference:** ${businessConfig.brand_voice || 'Not specified'}
 **Tone Preference:** ${businessConfig.tone || 'Not specified'}
+**Target Age Range:** ${ageHint || 'Not specified — infer from business and offer'}
+**Target Gender:** ${genderHint || 'Not specified — infer from business and offer'}
+**Ideal Customer (owner-defined):** ${businessConfig.target_customer_description || 'Not specified — infer from business type and website'}
 
 ## Website Content
 ${hasWebsite ? websiteContent.slice(0, 10000) : 'No website content available. Use your knowledge of this type of business based on the name and offer description.'}

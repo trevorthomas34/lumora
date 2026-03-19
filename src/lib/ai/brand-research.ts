@@ -49,6 +49,9 @@ export async function generateBrandBrief(business: Business): Promise<BrandBrief
     brand_voice: business.brand_voice,
     competitors: business.competitors,
     tone: business.tone,
+    target_age_ranges: business.target_age_ranges,
+    target_gender: business.target_gender,
+    target_customer_description: business.target_customer_description,
   });
 
   const message = await client.messages.create({

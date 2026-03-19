@@ -17,6 +17,35 @@ export const BRAND_TONES = [
   'Playful',
   'Luxurious',
   'Down-to-earth',
+  'Witty',
+  'Empathetic',
+  'Educational',
+  'Inspirational',
+  'Urgent',
+] as const;
+
+export const AGE_RANGES = [
+  '18-24',
+  '25-34',
+  '35-44',
+  '45-54',
+  '55-64',
+  '65+',
+] as const;
+
+export const GENDER_OPTIONS = [
+  { value: 'all', label: 'All genders' },
+  { value: 'primarily_men', label: 'Primarily men' },
+  { value: 'primarily_women', label: 'Primarily women' },
+] as const;
+
+export const LOCATION_PRESETS = [
+  'United States',
+  'Canada',
+  'United Kingdom',
+  'Australia',
+  'European Union',
+  'Worldwide',
 ] as const;
 
 export const GUARDRAILS = {

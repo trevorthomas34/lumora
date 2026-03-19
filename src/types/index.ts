@@ -12,6 +12,9 @@ export interface Business {
   brand_voice: string | null;
   competitors: string[];
   tone: string | null;
+  target_age_ranges: string[];
+  target_gender: 'all' | 'primarily_men' | 'primarily_women' | null;
+  target_customer_description: string | null;
   onboarding_completed: boolean;
   created_at: string;
   updated_at: string;
