@@ -386,7 +386,7 @@ export function SettingsContent({ business, connections }: SettingsContentProps)
                 <Input placeholder="Type a US state or custom location" value={locationInput}
                   onChange={e => handleLocationInput(e.target.value)}
                   onKeyDown={e => {
-                    if (e.key === "Enter") { e.preventDefault(); locationSuggestions.length > 0 ? addLocation(locationSuggestions[0]) : addLocation(locationInput); }
+                    if (e.key === "Enter") { e.preventDefault(); if (locationSuggestions.length > 0) { addLocation(locationSuggestions[0]); } else { addLocation(locationInput); } }
                     if (e.key === "Escape") setLocationSuggestions([]);
                   }} />
                 <Button type="button" variant="outline" size="sm" onClick={() => addLocation(locationInput)} disabled={!locationInput.trim()}>Add</Button>
