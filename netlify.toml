@@ -2,4 +2,5 @@
   command = "npm run build"
   publish = ".next"
 
-
+[functions."___netlify-server-handler"]
+  timeout = 60

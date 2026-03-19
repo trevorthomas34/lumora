@@ -6,12 +6,16 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { createClient } from "@/lib/supabase/client";
 import { isDemoMode } from "@/lib/utils";
 import type { Business, Connection } from "@/types";
-import { Save, Link2, Unlink, Sparkles, Loader2, X, AlertTriangle } from "lucide-react";
+import { Save, Link2, Unlink, Sparkles, Loader2, X, AlertTriangle, Plus, RefreshCw } from "lucide-react";
 import { getOAuthError } from "@/lib/oauth/errors";
+import { BUSINESS_GOALS, BRAND_TONES, LOCATION_PRESETS, US_STATE_PRESETS, AGE_RANGES, GENDER_OPTIONS } from "@/lib/constants";
+
+type Competitor = { name: string; url: string };
 
 interface AdAccount {
   id: string;
@@ -35,6 +39,32 @@ export function SettingsContent({ business, connections }: SettingsContentProps)
   const [name, setName] = useState(business.name);
   const [dailyBudget, setDailyBudget] = useState(business.daily_budget?.toString() || "");
   const [monthlyBudget, setMonthlyBudget] = useState(business.monthly_budget?.toString() || "");
+
+  // Brand profile state
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
+  const [profileSaved, setProfileSaved] = useState(false);
+  const [websiteUrl, setWebsiteUrl] = useState(business.website_url || "");
+  const [offerDescription, setOfferDescription] = useState(business.offer_description || "");
+  const [goal, setGoal] = useState(business.goal || "");
+  const [selectedTones, setSelectedTones] = useState<string[]>(
+    business.tone ? business.tone.split(", ").map(t => t.trim()).filter(Boolean) : []
+  );
+  const [brandVoice, setBrandVoice] = useState(business.brand_voice || "");
+  const [targetLocations, setTargetLocations] = useState<string[]>(business.target_locations || []);
+  const [locationInput, setLocationInput] = useState("");
+  const [locationSuggestions, setLocationSuggestions] = useState<string[]>([]);
+  const [targetAgeRanges, setTargetAgeRanges] = useState<string[]>(business.target_age_ranges || []);
+  const [targetGender, setTargetGender] = useState(business.target_gender || "");
+  const [targetCustomerDescription, setTargetCustomerDescription] = useState(business.target_customer_description || "");
+  const [competitors, setCompetitors] = useState<Competitor[]>(() => {
+    const raw = business.competitors || [];
+    if (raw.length === 0) return [{ name: "", url: "" }];
+    return raw.map((c) => {
+      const match = c.match(/^(.+?)\s*\((.+)\)$/);
+      return match ? { name: match[1].trim(), url: match[2].trim() } : { name: c, url: "" };
+    });
+  });
   const metaConnection = connections.find((c) => c.platform === "meta" && c.status === "active");
   const [pixelId, setPixelId] = useState(metaConnection?.pixel_id || "");
   const router = useRouter();
@@ -103,6 +133,69 @@ export function SettingsContent({ business, connections }: SettingsContentProps)
       router.refresh();
     } finally {
       setSavingPixelId(false);
+    }
+  };
+
+  const handleLocationInput = (val: string) => {
+    setLocationInput(val);
+    if (val.length >= 2) {
+      const lower = val.toLowerCase();
+      const matches = (US_STATE_PRESETS as readonly string[])
+        .filter(s => s.toLowerCase().startsWith(lower) && !targetLocations.includes(s))
+        .slice(0, 5);
+      setLocationSuggestions(matches);
+    } else {
+      setLocationSuggestions([]);
+    }
+  };
+
+  const addLocation = (loc: string) => {
+    const trimmed = loc.trim();
+    if (!trimmed) return;
+    setTargetLocations(prev => prev.includes(trimmed) ? prev : [...prev, trimmed]);
+    setLocationInput("");
+    setLocationSuggestions([]);
+  };
+
+  const handleSaveProfile = async (andRegenerate = false) => {
+    setSavingProfile(true);
+    setProfileSaved(false);
+    try {
+      const competitorStrings = competitors
+        .filter(c => c.name.trim())
+        .map(c => c.url.trim() ? `${c.name.trim()} (${c.url.trim()})` : c.name.trim());
+
+      await supabase.from("businesses").update({
+        website_url: websiteUrl || null,
+        offer_description: offerDescription || null,
+        goal: goal || null,
+        tone: selectedTones.length > 0 ? selectedTones.join(", ") : null,
+        brand_voice: brandVoice || null,
+        target_locations: targetLocations,
+        target_age_ranges: targetAgeRanges,
+        target_gender: targetGender || null,
+        target_customer_description: targetCustomerDescription || null,
+        competitors: competitorStrings,
+      }).eq("id", business.id);
+
+      if (andRegenerate) {
+        setRegenerating(true);
+        await fetch("/api/brand-research", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ businessId: business.id }),
+        });
+        setRegenerating(false);
+        router.push("/brand-brief");
+        return;
+      }
+
+      setProfileSaved(true);
+      setTimeout(() => setProfileSaved(false), 3000);
+      router.refresh();
+    } finally {
+      setSavingProfile(false);
+      setRegenerating(false);
     }
   };
 
@@ -241,6 +334,181 @@ export function SettingsContent({ business, connections }: SettingsContentProps)
             <Save className="mr-2 h-4 w-4" />
             {saving ? "Saving..." : "Save Changes"}
           </Button>
+        </CardContent>
+      </Card>
+
+      {/* Brand Profile */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Brand Profile</CardTitle>
+          <CardDescription>Edit your targeting and brand info. Changes here affect future brand brief generation.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          {/* Website + Offer */}
+          <div className="space-y-2">
+            <Label htmlFor="bp-website">Website URL</Label>
+            <Input id="bp-website" placeholder="https://acme.com" value={websiteUrl} onChange={e => setWebsiteUrl(e.target.value)} />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="bp-offer">What do you sell or offer?</Label>
+            <Textarea id="bp-offer" rows={2} placeholder="Describe your main product or service..." value={offerDescription} onChange={e => setOfferDescription(e.target.value)} />
+          </div>
+
+          {/* Goal */}
+          <div className="space-y-2">
+            <Label>Primary Goal</Label>
+            <div className="grid grid-cols-2 gap-2">
+              {BUSINESS_GOALS.map(g => (
+                <button key={g.value} type="button" onClick={() => setGoal(goal === g.value ? "" : g.value)}
+                  className={`p-3 rounded-lg border text-left text-sm transition-colors ${goal === g.value ? "border-primary bg-primary/10" : "border-border hover:border-primary/50"}`}>
+                  <p className="font-medium">{g.label}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Locations */}
+          <div className="space-y-2">
+            <Label>Target Locations</Label>
+            <div className="flex flex-wrap gap-2">
+              {(LOCATION_PRESETS as readonly string[]).map(loc => {
+                const selected = targetLocations.includes(loc);
+                return (
+                  <button key={loc} type="button" onClick={() => selected ? setTargetLocations(p => p.filter(l => l !== loc)) : addLocation(loc)}
+                    className={`px-3 py-1.5 rounded-full border text-sm transition-colors ${selected ? "border-primary bg-primary/10 text-primary" : "border-border hover:border-primary/50"}`}>
+                    {loc}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="relative">
+              <div className="flex gap-2">
+                <Input placeholder="Type a US state or custom location" value={locationInput}
+                  onChange={e => handleLocationInput(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === "Enter") { e.preventDefault(); locationSuggestions.length > 0 ? addLocation(locationSuggestions[0]) : addLocation(locationInput); }
+                    if (e.key === "Escape") setLocationSuggestions([]);
+                  }} />
+                <Button type="button" variant="outline" size="sm" onClick={() => addLocation(locationInput)} disabled={!locationInput.trim()}>Add</Button>
+              </div>
+              {locationSuggestions.length > 0 && (
+                <div className="absolute z-10 w-full mt-1 bg-card border border-border rounded-md shadow-lg overflow-hidden">
+                  {locationSuggestions.map(s => (
+                    <button key={s} type="button" className="w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors"
+                      onMouseDown={e => { e.preventDefault(); addLocation(s); }}>{s}</button>
+                  ))}
+                </div>
+              )}
+            </div>
+            {targetLocations.filter(l => !(LOCATION_PRESETS as readonly string[]).includes(l)).length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {targetLocations.filter(l => !(LOCATION_PRESETS as readonly string[]).includes(l)).map(loc => (
+                  <span key={loc} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-muted text-sm border border-border">
+                    {loc}
+                    <button type="button" onClick={() => setTargetLocations(p => p.filter(l => l !== loc))} className="text-muted-foreground hover:text-foreground ml-0.5">
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Age Range */}
+          <div className="space-y-2">
+            <Label>Age Range</Label>
+            <div className="flex flex-wrap gap-2">
+              {AGE_RANGES.map(range => {
+                const selected = targetAgeRanges.includes(range);
+                return (
+                  <button key={range} type="button"
+                    onClick={() => setTargetAgeRanges(prev => selected ? prev.filter(r => r !== range) : [...prev, range])}
+                    className={`px-3 py-1.5 rounded-full border text-sm transition-colors ${selected ? "border-primary bg-primary/10 text-primary" : "border-border hover:border-primary/50"}`}>
+                    {range}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Gender */}
+          <div className="space-y-2">
+            <Label>Gender</Label>
+            <div className="flex flex-wrap gap-2">
+              {GENDER_OPTIONS.map(opt => (
+                <button key={opt.value} type="button"
+                  onClick={() => setTargetGender(targetGender === opt.value ? "" : opt.value)}
+                  className={`px-3 py-1.5 rounded-full border text-sm transition-colors ${targetGender === opt.value ? "border-primary bg-primary/10 text-primary" : "border-border hover:border-primary/50"}`}>
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Ideal customer */}
+          <div className="space-y-2">
+            <Label htmlFor="bp-customer">Ideal Customer</Label>
+            <Textarea id="bp-customer" rows={2} placeholder="e.g. First-time homeowners, small business owners..." value={targetCustomerDescription} onChange={e => setTargetCustomerDescription(e.target.value)} />
+          </div>
+
+          {/* Tone */}
+          <div className="space-y-2">
+            <Label>Tone</Label>
+            <div className="flex flex-wrap gap-2">
+              {BRAND_TONES.map(tone => {
+                const selected = selectedTones.includes(tone);
+                return (
+                  <button key={tone} type="button"
+                    onClick={() => setSelectedTones(prev => selected ? prev.filter(t => t !== tone) : [...prev, tone])}
+                    className={`px-3 py-1.5 rounded-full border text-sm transition-colors ${selected ? "border-primary bg-primary/10 text-primary" : "border-border hover:border-primary/50"}`}>
+                    {tone}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Brand voice notes */}
+          <div className="space-y-2">
+            <Label htmlFor="bp-voice">Brand Voice Notes</Label>
+            <Textarea id="bp-voice" rows={2} placeholder="Any specific tone or style guidelines..." value={brandVoice} onChange={e => setBrandVoice(e.target.value)} />
+          </div>
+
+          {/* Competitors */}
+          <div className="space-y-2">
+            <Label>Competitors</Label>
+            <div className="space-y-2">
+              {competitors.map((comp, index) => (
+                <div key={index} className="flex gap-2 items-start">
+                  <div className="grid grid-cols-2 gap-2 flex-1">
+                    <Input placeholder="Competitor name" value={comp.name} onChange={e => setCompetitors(prev => prev.map((c, i) => i === index ? { ...c, name: e.target.value } : c))} />
+                    <Input placeholder="https://competitor.com" value={comp.url} onChange={e => setCompetitors(prev => prev.map((c, i) => i === index ? { ...c, url: e.target.value } : c))} />
+                  </div>
+                  {competitors.length > 1 && (
+                    <Button type="button" variant="ghost" size="sm" className="shrink-0 h-9 w-9 p-0" onClick={() => setCompetitors(prev => prev.filter((_, i) => i !== index))}>
+                      <X className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+            {competitors.length < 5 && (
+              <Button type="button" variant="ghost" size="sm" className="text-muted-foreground" onClick={() => setCompetitors(prev => [...prev, { name: "", url: "" }])}>
+                <Plus className="mr-1.5 h-4 w-4" /> Add competitor
+              </Button>
+            )}
+          </div>
+
+          <div className="flex gap-3 pt-2">
+            <Button onClick={() => handleSaveProfile(false)} disabled={savingProfile || regenerating} variant="outline">
+              <Save className="mr-2 h-4 w-4" />
+              {savingProfile && !regenerating ? "Saving..." : profileSaved ? "Saved!" : "Save"}
+            </Button>
+            <Button onClick={() => handleSaveProfile(true)} disabled={savingProfile || regenerating} variant="lumora">
+              <RefreshCw className={`mr-2 h-4 w-4 ${regenerating ? "animate-spin" : ""}`} />
+              {regenerating ? "Regenerating..." : "Save & Regenerate Brief"}
+            </Button>
+          </div>
         </CardContent>
       </Card>
 

@@ -1,3 +1,5 @@
+export const maxDuration = 60;
+
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { generateBrandBrief } from "@/lib/ai/brand-research";
 import { NextResponse } from "next/server";

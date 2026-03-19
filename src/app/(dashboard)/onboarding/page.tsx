@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { BUSINESS_GOALS, BRAND_TONES, LOCATION_PRESETS, AGE_RANGES, GENDER_OPTIONS } from "@/lib/constants";
+import { BUSINESS_GOALS, BRAND_TONES, LOCATION_PRESETS, US_STATE_PRESETS, AGE_RANGES, GENDER_OPTIONS } from "@/lib/constants";
 import { isDemoMode } from "@/lib/utils";
 import { ArrowLeft, ArrowRight, Sparkles, Loader2, AlertTriangle, X, Rocket, Plus, MapPin } from "lucide-react";
 import { getOAuthError } from "@/lib/oauth/errors";
@@ -43,9 +43,11 @@ export default function OnboardingPage() {
   const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(false);
   const [kickstarting, setKickstarting] = useState(false);
+  const [kickstartError, setKickstartError] = useState<string | null>(null);
   const [connecting, setConnecting] = useState<string | null>(null);
   const [connectError, setConnectError] = useState<string | null>(null);
   const [locationInput, setLocationInput] = useState("");
+  const [locationSuggestions, setLocationSuggestions] = useState<string[]>([]);
   const router = useRouter();
   const searchParams = useSearchParams();
   const supabase = createClient();
@@ -67,7 +69,7 @@ export default function OnboardingPage() {
     monthly_budget: "",
     goal: "" as string,
     brand_voice: "",
-    tone: "",
+    tones: [] as string[],
   });
 
   const [competitors, setCompetitors] = useState<Competitor[]>([{ name: "", url: "" }]);
@@ -99,6 +101,19 @@ export default function OnboardingPage() {
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
+  const handleLocationInput = (val: string) => {
+    setLocationInput(val);
+    if (val.length >= 2) {
+      const lower = val.toLowerCase();
+      const matches = (US_STATE_PRESETS as readonly string[])
+        .filter(s => s.toLowerCase().startsWith(lower) && !formData.target_locations.includes(s))
+        .slice(0, 5);
+      setLocationSuggestions(matches);
+    } else {
+      setLocationSuggestions([]);
+    }
+  };
+
   const addLocation = (loc: string) => {
     const trimmed = loc.trim();
     if (!trimmed) return;
@@ -108,6 +123,8 @@ export default function OnboardingPage() {
         ? prev.target_locations
         : [...prev.target_locations, trimmed],
     }));
+    setLocationInput("");
+    setLocationSuggestions([]);
   };
 
   const removeLocation = (loc: string) => {
@@ -133,6 +150,7 @@ export default function OnboardingPage() {
 
   const handleComplete = async () => {
     setLoading(true);
+    setKickstartError(null);
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
@@ -156,7 +174,7 @@ export default function OnboardingPage() {
           goal: formData.goal || null,
           brand_voice: formData.brand_voice || null,
           competitors: competitorStrings,
-          tone: formData.tone || null,
+          tone: formData.tones.length > 0 ? formData.tones.join(', ') : null,
           onboarding_completed: true,
         })
         .eq("user_id", user.id);
@@ -178,6 +196,11 @@ export default function OnboardingPage() {
           router.push(`/campaigns/${planId}?generated=true`);
           return;
         }
+        const errData = await kickRes.json().catch(() => ({}));
+        setKickstartError(errData.error || "Failed to generate campaign. You can try again from the Brand Brief page.");
+        setLoading(false);
+        setKickstarting(false);
+        return;
       }
 
       router.push("/dashboard");
@@ -274,29 +297,49 @@ export default function OnboardingPage() {
                   })}
                 </div>
 
-                {/* Custom location input */}
-                <div className="flex gap-2 pt-1">
-                  <Input
-                    placeholder="Add custom location (e.g. New York, Texas)"
-                    value={locationInput}
-                    onChange={(e) => setLocationInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        addLocation(locationInput);
-                        setLocationInput("");
-                      }
-                    }}
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => { addLocation(locationInput); setLocationInput(""); }}
-                    disabled={!locationInput.trim()}
-                  >
-                    Add
-                  </Button>
+                {/* Custom location input with state suggestions */}
+                <div className="relative pt-1">
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="Type a US state or custom location"
+                      value={locationInput}
+                      onChange={(e) => handleLocationInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          if (locationSuggestions.length > 0) {
+                            addLocation(locationSuggestions[0]);
+                          } else {
+                            addLocation(locationInput);
+                          }
+                        }
+                        if (e.key === "Escape") setLocationSuggestions([]);
+                      }}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => addLocation(locationInput)}
+                      disabled={!locationInput.trim()}
+                    >
+                      Add
+                    </Button>
+                  </div>
+                  {locationSuggestions.length > 0 && (
+                    <div className="absolute z-10 w-full mt-1 bg-card border border-border rounded-md shadow-lg overflow-hidden">
+                      {locationSuggestions.map((s) => (
+                        <button
+                          key={s}
+                          type="button"
+                          className="w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors"
+                          onMouseDown={(e) => { e.preventDefault(); addLocation(s); }}
+                        >
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {/* Selected custom locations (non-preset) */}
@@ -439,20 +482,31 @@ export default function OnboardingPage() {
             <>
               <div className="space-y-2">
                 <Label>Tone</Label>
-                <div className="flex flex-wrap gap-2">
-                  {BRAND_TONES.map((tone) => (
-                    <button
-                      key={tone}
-                      onClick={() => updateField("tone", tone)}
-                      className={`px-3 py-1.5 rounded-full border text-sm transition-colors ${
-                        formData.tone === tone
-                          ? "border-primary bg-primary/10 text-primary"
-                          : "border-border hover:border-primary/50"
-                      }`}
-                    >
-                      {tone}
-                    </button>
-                  ))}
+                <p className="text-xs text-muted-foreground -mt-1">Select all that apply.</p>
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {BRAND_TONES.map((tone) => {
+                    const selected = formData.tones.includes(tone);
+                    return (
+                      <button
+                        key={tone}
+                        onClick={() =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            tones: selected
+                              ? prev.tones.filter((t) => t !== tone)
+                              : [...prev.tones, tone],
+                          }))
+                        }
+                        className={`px-3 py-1.5 rounded-full border text-sm transition-colors ${
+                          selected
+                            ? "border-primary bg-primary/10 text-primary"
+                            : "border-border hover:border-primary/50"
+                        }`}
+                      >
+                        {tone}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
               <div className="space-y-2">
@@ -620,6 +674,16 @@ export default function OnboardingPage() {
               <p className="text-sm text-muted-foreground text-center">
                 You can always connect these later in Settings.
               </p>
+            </div>
+          )}
+
+          {kickstartError && (
+            <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-4 flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 mt-0.5 shrink-0 text-red-400" />
+              <div>
+                <p className="text-sm font-medium text-red-400">Campaign generation failed</p>
+                <p className="text-sm mt-0.5 text-red-400/80">{kickstartError}</p>
+              </div>
             </div>
           )}
 
