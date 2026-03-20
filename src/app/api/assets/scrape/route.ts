@@ -41,37 +41,67 @@ export async function GET(request: Request) {
     const html = await res.text();
     const base = new URL(siteUrl);
 
+    // Resolve and normalize an image URL — strip WordPress size suffixes to get originals
+    const resolveUrl = (raw: string): string | null => {
+      if (!raw || raw.startsWith("data:") || raw.startsWith("blob:")) return null;
+      try {
+        let url = new URL(raw, base).href;
+        // Strip WordPress size suffix: image-800x600.jpg → image.jpg
+        url = url.replace(/(-\d+x\d+)(\.[a-z]{2,5})(\?|$)/i, "$2$3");
+        return url;
+      } catch {
+        return null;
+      }
+    };
+
+    // Pick the largest URL from a srcset string
+    const bestFromSrcset = (srcset: string): string | null => {
+      const candidates = srcset.split(",").map((s) => {
+        const parts = s.trim().split(/\s+/);
+        const url = parts[0];
+        const w = parts[1] ? parseInt(parts[1]) : 0;
+        return { url, w };
+      });
+      candidates.sort((a, b) => b.w - a.w);
+      return candidates[0]?.url || null;
+    };
+
     const images: { url: string; alt: string }[] = [];
     const seen = new Set<string>();
-    const srcPattern = /<img[^>]+src=["']([^"']+)["'][^>]*/gi;
 
-    let match;
-    while ((match = srcPattern.exec(html)) !== null) {
-      let src = match[1];
-      if (!src || src.startsWith("data:") || src.startsWith("blob:")) continue;
-
-      try {
-        src = new URL(src, base).href;
-      } catch {
-        continue;
-      }
-
-      // Skip obvious icons / tracking pixels
-      if (/favicon|icon[-_]\d|sprite|pixel|1x1|logo[-_]sm/i.test(src)) continue;
-      if (seen.has(src)) continue;
+    const addImage = (src: string, alt: string) => {
+      if (/favicon|icon[-_]\d|sprite|pixel|1x1|logo[-_]sm/i.test(src)) return;
+      if (!/\.(jpg|jpeg|png|webp|gif|avif)(\?|$)/i.test(src) &&
+          !/\/(images?|assets?|media|photos?|uploads?)\//i.test(src)) return;
+      if (seen.has(src)) return;
       seen.add(src);
+      images.push({ url: src, alt });
+    };
 
-      const altMatch = match[0].match(/alt=["']([^"']*)["']/i);
+    const imgPattern = /<img([^>]+)>/gi;
+    let match;
+    while ((match = imgPattern.exec(html)) !== null) {
+      if (images.length >= 40) break;
+      const attrs = match[1];
+
+      const altMatch = attrs.match(/alt=["']([^"']*)["']/i);
       const alt = altMatch ? altMatch[1].trim() : "";
 
-      // Only real image extensions (or paths that look like asset dirs)
-      if (!/\.(jpg|jpeg|png|webp|gif|avif)(\?|$)/i.test(src) &&
-          !/\/(images?|assets?|media|photos?|uploads?)\//i.test(src)) {
-        continue;
+      // Prefer srcset (higher-res) over src
+      const srcsetMatch = attrs.match(/srcset=["']([^"']+)["']/i);
+      if (srcsetMatch) {
+        const best = bestFromSrcset(srcsetMatch[1]);
+        if (best) {
+          const url = resolveUrl(best);
+          if (url) { addImage(url, alt); continue; }
+        }
       }
 
-      images.push({ url: src, alt });
-      if (images.length >= 40) break;
+      const srcMatch = attrs.match(/src=["']([^"']+)["']/i);
+      if (srcMatch) {
+        const url = resolveUrl(srcMatch[1]);
+        if (url) addImage(url, alt);
+      }
     }
 
     return NextResponse.json({ images, websiteUrl: siteUrl });
