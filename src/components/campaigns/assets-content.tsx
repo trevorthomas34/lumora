@@ -61,6 +61,11 @@ export function AssetsContent({ businessId, assets, driveConnected, websiteUrl }
 
   // Delete state
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+
+  // Multi-select (delete) mode
+  const [selectMode, setSelectMode] = useState(false);
+  const [deleteSelection, setDeleteSelection] = useState<Set<string>>(new Set());
 
   // Upload state
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -188,6 +193,36 @@ export function AssetsContent({ businessId, assets, driveConnected, websiteUrl }
     }
   };
 
+  const handleBulkDelete = async () => {
+    if (!deleteSelection.size) return;
+    setBulkDeleting(true);
+    for (const assetId of deleteSelection) {
+      await fetch("/api/assets/delete", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assetId }),
+      });
+    }
+    setDeleteSelection(new Set());
+    setSelectMode(false);
+    setBulkDeleting(false);
+    router.refresh();
+  };
+
+  const toggleDeleteSelection = (assetId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setDeleteSelection((prev) => {
+      const next = new Set(prev);
+      if (next.has(assetId)) { next.delete(assetId); } else { next.add(assetId); }
+      return next;
+    });
+  };
+
+  const exitSelectMode = () => {
+    setSelectMode(false);
+    setDeleteSelection(new Set());
+  };
+
   // ── Local Upload ──────────────────────────────────────────────────────────
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -302,11 +337,23 @@ export function AssetsContent({ businessId, assets, driveConnected, websiteUrl }
           <div>
             <h2 className="text-2xl font-bold">Creative Assets</h2>
             <p className="text-sm text-muted-foreground">
-              {selectedAssets.size} of {assets.length} assets selected for campaigns
+              {selectMode
+                ? `${deleteSelection.size} of ${assets.length} selected`
+                : `${selectedAssets.size} of ${assets.length} assets selected for campaigns`}
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {/* Select mode toggle */}
+            {assets.length > 0 && (
+              selectMode ? (
+                <Button variant="ghost" size="sm" onClick={exitSelectMode}>Cancel</Button>
+              ) : (
+                <Button variant="outline" size="sm" onClick={() => setSelectMode(true)}>
+                  Select
+                </Button>
+              )
+            )}
             {/* Upload from device */}
             <input
               ref={fileInputRef}
@@ -444,14 +491,17 @@ export function AssetsContent({ businessId, assets, driveConnected, websiteUrl }
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
             {assets.map((asset) => {
               const isSelected = selectedAssets.has(asset.id);
+              const isMarkedForDelete = deleteSelection.has(asset.id);
               const isVideo = asset.file_type === "video";
               return (
                 <Card
                   key={asset.id}
                   className={`cursor-pointer transition-all hover:border-primary/50 group ${
-                    isSelected ? "border-primary ring-1 ring-primary/30" : ""
+                    selectMode
+                      ? isMarkedForDelete ? "border-destructive ring-1 ring-destructive/30" : ""
+                      : isSelected ? "border-primary ring-1 ring-primary/30" : ""
                   }`}
-                  onClick={() => setPreviewAsset(asset)}
+                  onClick={(e) => selectMode ? toggleDeleteSelection(asset.id, e) : setPreviewAsset(asset)}
                 >
                   <CardContent className="p-3">
                     <div className="aspect-square bg-muted rounded-md mb-2 flex items-center justify-center relative overflow-hidden">
@@ -467,7 +517,7 @@ export function AssetsContent({ businessId, assets, driveConnected, websiteUrl }
                       )}
 
                       {/* Video indicator */}
-                      {isVideo && (
+                      {isVideo && !selectMode && (
                         <div className="absolute inset-0 flex items-center justify-center bg-black/30">
                           <div className="bg-black/60 rounded-full p-2">
                             <Play className="h-5 w-5 text-white fill-white" />
@@ -475,28 +525,41 @@ export function AssetsContent({ businessId, assets, driveConnected, websiteUrl }
                         </div>
                       )}
 
-                      {/* Delete button — top-left, visible on card hover */}
-                      <button
-                        onClick={(e) => deleteAsset(asset.id, e)}
-                        disabled={deletingId === asset.id}
-                        className="absolute top-2 left-2 rounded-full p-1 bg-black/40 text-white/60 opacity-0 group-hover:opacity-100 hover:bg-red-600 hover:text-white transition-all"
-                      >
-                        {deletingId === asset.id
-                          ? <RefreshCw className="h-3 w-3 animate-spin" />
-                          : <Trash2 className="h-3 w-3" />}
-                      </button>
+                      {selectMode ? (
+                        /* Delete selection checkbox */
+                        <div className={`absolute inset-0 flex items-center justify-center transition-colors ${
+                          isMarkedForDelete ? "bg-destructive/20" : "bg-transparent"
+                        }`}>
+                          <div className={`rounded-full border-2 w-6 h-6 flex items-center justify-center transition-colors ${
+                            isMarkedForDelete ? "bg-destructive border-destructive" : "border-white/70 bg-black/30"
+                          }`}>
+                            {isMarkedForDelete && <Check className="h-3.5 w-3.5 text-white" />}
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          {/* Delete button — top-left, visible on hover */}
+                          <button
+                            onClick={(e) => deleteAsset(asset.id, e)}
+                            disabled={deletingId === asset.id}
+                            className="absolute top-2 left-2 rounded-full p-1 bg-black/40 text-white/60 opacity-0 group-hover:opacity-100 hover:bg-red-600 hover:text-white transition-all"
+                          >
+                            {deletingId === asset.id
+                              ? <RefreshCw className="h-3 w-3 animate-spin" />
+                              : <Trash2 className="h-3 w-3" />}
+                          </button>
 
-                      {/* Selection toggle — top-right */}
-                      <button
-                        onClick={(e) => toggleAsset(asset.id, e)}
-                        className={`absolute top-2 right-2 rounded-full p-1 transition-colors ${
-                          isSelected
-                            ? "bg-primary"
-                            : "bg-black/40 hover:bg-black/60"
-                        }`}
-                      >
-                        <Check className={`h-3 w-3 ${isSelected ? "text-white" : "text-white/60"}`} />
-                      </button>
+                          {/* Campaign selection toggle — top-right */}
+                          <button
+                            onClick={(e) => toggleAsset(asset.id, e)}
+                            className={`absolute top-2 right-2 rounded-full p-1 transition-colors ${
+                              isSelected ? "bg-primary" : "bg-black/40 hover:bg-black/60"
+                            }`}
+                          >
+                            <Check className={`h-3 w-3 ${isSelected ? "text-white" : "text-white/60"}`} />
+                          </button>
+                        </>
+                      )}
                     </div>
                     <p className="text-sm font-medium truncate">{asset.file_name}</p>
                     <div className="flex items-center justify-between mt-1">
@@ -512,6 +575,35 @@ export function AssetsContent({ businessId, assets, driveConnected, websiteUrl }
           </div>
         )}
       </div>
+
+      {/* ── Bulk delete bar ───────────────────────────────────────────────── */}
+      {selectMode && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 px-5 py-3 rounded-full bg-card border border-border shadow-xl">
+          <button
+            onClick={() => setDeleteSelection(new Set(assets.map((a) => a.id)))}
+            className="text-sm text-primary hover:underline"
+          >
+            Select all
+          </button>
+          {deleteSelection.size > 0 && (
+            <button onClick={() => setDeleteSelection(new Set())} className="text-sm text-muted-foreground hover:underline">
+              Clear
+            </button>
+          )}
+          <div className="w-px h-4 bg-border" />
+          <Button
+            size="sm"
+            variant="destructive"
+            disabled={deleteSelection.size === 0 || bulkDeleting}
+            onClick={handleBulkDelete}
+          >
+            {bulkDeleting
+              ? <RefreshCw className="mr-2 h-3.5 w-3.5 animate-spin" />
+              : <Trash2 className="mr-2 h-3.5 w-3.5" />}
+            Delete {deleteSelection.size > 0 ? deleteSelection.size : ""}
+          </Button>
+        </div>
+      )}
 
       {/* ── Preview Modal ──────────────────────────────────────────────────── */}
       {previewAsset && (
@@ -673,12 +765,12 @@ export function AssetsContent({ businessId, assets, driveConnected, websiteUrl }
                             isSel ? "border-primary ring-1 ring-primary/30" : "border-border/50 hover:border-primary/40"
                           }`}
                         >
-                          <div className="aspect-square bg-muted">
+                          <div className="aspect-square bg-muted flex items-center justify-center">
                             {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img
                               src={img.url}
                               alt={img.alt || ""}
-                              className="object-cover w-full h-full"
+                              className="object-contain w-full h-full"
                               onError={(e) => {
                                 (e.target as HTMLImageElement).style.display = "none";
                               }}
