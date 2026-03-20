@@ -33,6 +33,7 @@ export default async function AssetsPage() {
       businessId={business.id}
       assets={assets || []}
       driveConnected={connection?.status === "active"}
+      websiteUrl={business.website_url || null}
     />
   );
 }
