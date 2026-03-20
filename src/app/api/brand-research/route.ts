@@ -3,8 +3,12 @@ export const maxDuration = 120;
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { generateBrandBrief } from "@/lib/ai/brand-research";
 import { NextResponse } from "next/server";
+import type { Business } from "@/types";
 
 export async function POST(request: Request) {
+  // Must resolve cookies/auth synchronously before starting a stream
+  const supabase = createServerSupabaseClient();
+
   let businessId: string;
   try {
     const body = await request.json();
@@ -13,6 +17,19 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   }
 
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const { data: business } = await supabase
+    .from("businesses")
+    .select("*")
+    .eq("id", businessId)
+    .eq("user_id", user.id)
+    .single();
+
+  if (!business) return NextResponse.json({ error: "Business not found" }, { status: 404 });
+
+  // Now stream the AI generation — heartbeat prevents gateway timeout
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
@@ -24,35 +41,10 @@ export async function POST(request: Request) {
         }
       };
 
-      // Send heartbeat every 5s to prevent gateway timeout
       const heartbeat = setInterval(() => send({ status: "working" }), 5000);
 
       try {
-        const supabase = createServerSupabaseClient();
-        const { data: { user } } = await supabase.auth.getUser();
-
-        if (!user) {
-          clearInterval(heartbeat);
-          send({ status: "error", error: "Unauthorized" });
-          controller.close();
-          return;
-        }
-
-        const { data: business } = await supabase
-          .from("businesses")
-          .select("*")
-          .eq("id", businessId)
-          .eq("user_id", user.id)
-          .single();
-
-        if (!business) {
-          clearInterval(heartbeat);
-          send({ status: "error", error: "Business not found" });
-          controller.close();
-          return;
-        }
-
-        const briefData = await generateBrandBrief(business);
+        const briefData = await generateBrandBrief(business as Business);
 
         const { data: existingBriefs } = await supabase
           .from("brand_briefs")
