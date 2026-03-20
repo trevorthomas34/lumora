@@ -144,7 +144,7 @@ export function AssetsContent({ businessId, assets: initialAssets, driveConnecte
     const nextSelected = !isSelected;
     setSelectedAssets((prev) => {
       const next = new Set(prev);
-      nextSelected ? next.add(assetId) : next.delete(assetId);
+      if (nextSelected) { next.add(assetId); } else { next.delete(assetId); }
       return next;
     });
     try {
@@ -158,7 +158,7 @@ export function AssetsContent({ businessId, assets: initialAssets, driveConnecte
       // Revert on failure
       setSelectedAssets((prev) => {
         const next = new Set(prev);
-        isSelected ? next.add(assetId) : next.delete(assetId);
+        if (isSelected) { next.add(assetId); } else { next.delete(assetId); }
         return next;
       });
     }
@@ -217,7 +217,7 @@ export function AssetsContent({ businessId, assets: initialAssets, driveConnecte
   const toggleScrapeImage = (index: number) => {
     setScrapeSelected((prev) => {
       const next = new Set(prev);
-      next.has(index) ? next.delete(index) : next.add(index);
+      if (next.has(index)) { next.delete(index); } else { next.add(index); }
       return next;
     });
   };
