@@ -1,3 +1,4 @@
+export const runtime = 'edge';
 export const maxDuration = 120;
 
 import { createServerSupabaseClient } from "@/lib/supabase/server";

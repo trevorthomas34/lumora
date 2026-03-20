@@ -1,7 +1,6 @@
 import { getAnthropicClient } from './client';
 import { BRAND_RESEARCH_SYSTEM_PROMPT, buildBrandResearchPrompt } from './prompts/brand-research';
 import type { BrandBriefData, Business } from '@/types';
-import * as cheerio from 'cheerio';
 
 export async function scrapeWebsite(url: string): Promise<string> {
   try {
@@ -11,15 +10,33 @@ export async function scrapeWebsite(url: string): Promise<string> {
       signal: AbortSignal.timeout(2000),
     });
     const html = await response.text();
-    const $ = cheerio.load(html);
 
-    $('script, style, nav, footer, header, iframe, noscript').remove();
+    // Strip noisy tags first
+    const stripped = html
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<nav[\s\S]*?<\/nav>/gi, ' ')
+      .replace(/<footer[\s\S]*?<\/footer>/gi, ' ')
+      .replace(/<header[\s\S]*?<\/header>/gi, ' ')
+      .replace(/<iframe[\s\S]*?<\/iframe>/gi, ' ')
+      .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ');
 
-    const title = $('title').text().trim();
-    const metaDescription = $('meta[name="description"]').attr('content') || '';
-    const h1s = $('h1').map((_, el) => $(el).text().trim()).get().join(' | ');
-    const h2s = $('h2').map((_, el) => $(el).text().trim()).get().join(' | ');
-    const bodyText = $('body').text().replace(/\s+/g, ' ').trim().slice(0, 5000);
+    const title = (/<title[^>]*>([^<]*)<\/title>/i.exec(stripped))?.[1]?.trim() || '';
+    const metaDescription = (/<meta[^>]*name="description"[^>]*content="([^"]*)"/i.exec(stripped))?.[1]?.trim() || '';
+    const h1s = Array.from(stripped.matchAll(/<h1[^>]*>([\s\S]*?)<\/h1>/gi))
+      .map(m => m[1].replace(/<[^>]+>/g, '').trim())
+      .filter(Boolean)
+      .join(' | ');
+    const h2s = Array.from(stripped.matchAll(/<h2[^>]*>([\s\S]*?)<\/h2>/gi))
+      .map(m => m[1].replace(/<[^>]+>/g, '').trim())
+      .filter(Boolean)
+      .slice(0, 8)
+      .join(' | ');
+    const bodyText = stripped
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 5000);
 
     return `Title: ${title}\nDescription: ${metaDescription}\nHeadings: ${h1s}\nSubheadings: ${h2s}\nContent: ${bodyText}`;
   } catch (error) {
