@@ -20,6 +20,7 @@ import {
   Globe,
   Play,
   ExternalLink,
+  Trash2,
 } from "lucide-react";
 import type { CreativeAsset } from "@/types";
 
@@ -57,6 +58,9 @@ export function AssetsContent({ businessId, assets, driveConnected, websiteUrl }
 
   // Preview modal state
   const [previewAsset, setPreviewAsset] = useState<CreativeAsset | null>(null);
+
+  // Delete state
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   // Upload state
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -162,6 +166,27 @@ export function AssetsContent({ businessId, assets, driveConnected, websiteUrl }
       });
     }
   }, [selectedAssets]);
+
+  // ── Delete ────────────────────────────────────────────────────────────────
+
+  const deleteAsset = async (assetId: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setDeletingId(assetId);
+    try {
+      const res = await fetch("/api/assets/delete", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assetId }),
+      });
+      if (!res.ok) throw new Error("Failed to delete");
+      if (previewAsset?.id === assetId) setPreviewAsset(null);
+      router.refresh();
+    } catch {
+      // no-op — keep UI unchanged on failure
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   // ── Local Upload ──────────────────────────────────────────────────────────
 
@@ -423,7 +448,7 @@ export function AssetsContent({ businessId, assets, driveConnected, websiteUrl }
               return (
                 <Card
                   key={asset.id}
-                  className={`cursor-pointer transition-all hover:border-primary/50 ${
+                  className={`cursor-pointer transition-all hover:border-primary/50 group ${
                     isSelected ? "border-primary ring-1 ring-primary/30" : ""
                   }`}
                   onClick={() => setPreviewAsset(asset)}
@@ -450,7 +475,18 @@ export function AssetsContent({ businessId, assets, driveConnected, websiteUrl }
                         </div>
                       )}
 
-                      {/* Selection toggle — separate hit target */}
+                      {/* Delete button — top-left, visible on card hover */}
+                      <button
+                        onClick={(e) => deleteAsset(asset.id, e)}
+                        disabled={deletingId === asset.id}
+                        className="absolute top-2 left-2 rounded-full p-1 bg-black/40 text-white/60 opacity-0 group-hover:opacity-100 hover:bg-red-600 hover:text-white transition-all"
+                      >
+                        {deletingId === asset.id
+                          ? <RefreshCw className="h-3 w-3 animate-spin" />
+                          : <Trash2 className="h-3 w-3" />}
+                      </button>
+
+                      {/* Selection toggle — top-right */}
                       <button
                         onClick={(e) => toggleAsset(asset.id, e)}
                         className={`absolute top-2 right-2 rounded-full p-1 transition-colors ${
@@ -555,7 +591,20 @@ export function AssetsContent({ businessId, assets, driveConnected, websiteUrl }
 
             {/* Footer */}
             <div className="flex items-center justify-between px-4 py-3 border-t border-border/50">
-              <span className="text-xs text-muted-foreground">{formatFileSize(previewAsset.file_size) ?? "Size unknown"}</span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">{formatFileSize(previewAsset.file_size) ?? "Size unknown"}</span>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-destructive hover:text-destructive hover:bg-destructive/10 h-7 px-2"
+                  disabled={deletingId === previewAsset.id}
+                  onClick={(e) => deleteAsset(previewAsset.id, e)}
+                >
+                  {deletingId === previewAsset.id
+                    ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                    : <Trash2 className="h-3.5 w-3.5" />}
+                </Button>
+              </div>
               <Button
                 size="sm"
                 variant={selectedAssets.has(previewAsset.id) ? "default" : "outline"}
