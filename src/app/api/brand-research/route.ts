@@ -6,95 +6,59 @@ import { NextResponse } from "next/server";
 import type { Business } from "@/types";
 
 export async function POST(request: Request) {
-  // Must resolve cookies/auth synchronously before starting a stream
-  const supabase = createServerSupabaseClient();
-
-  let businessId: string;
   try {
-    const body = await request.json();
-    businessId = body.businessId;
-  } catch {
-    return NextResponse.json({ error: "Invalid request" }, { status: 400 });
+    const { businessId } = await request.json();
+    const supabase = createServerSupabaseClient();
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const { data: business } = await supabase
+      .from("businesses")
+      .select("*")
+      .eq("id", businessId)
+      .eq("user_id", user.id)
+      .single();
+
+    if (!business) return NextResponse.json({ error: "Business not found" }, { status: 404 });
+
+    const briefData = await generateBrandBrief(business as Business);
+
+    const { data: existingBriefs } = await supabase
+      .from("brand_briefs")
+      .select("version")
+      .eq("business_id", businessId)
+      .order("version", { ascending: false })
+      .limit(1);
+
+    const nextVersion = (existingBriefs?.[0]?.version || 0) + 1;
+
+    const { data: brief, error } = await supabase
+      .from("brand_briefs")
+      .insert({
+        business_id: businessId,
+        version: nextVersion,
+        brief_data: briefData,
+        status: "draft",
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    await supabase.from("action_logs").insert({
+      business_id: businessId,
+      actor: "agent",
+      action_type: "generate_brand_brief",
+      description: `Generated brand brief v${nextVersion}`,
+    });
+
+    return NextResponse.json(brief);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("Brand research error:", message);
+    return NextResponse.json({ error: `Failed to generate brand brief: ${message}` }, { status: 500 });
   }
-
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const { data: business } = await supabase
-    .from("businesses")
-    .select("*")
-    .eq("id", businessId)
-    .eq("user_id", user.id)
-    .single();
-
-  if (!business) return NextResponse.json({ error: "Business not found" }, { status: 404 });
-
-  // Now stream the AI generation — heartbeat prevents gateway timeout
-  const encoder = new TextEncoder();
-  const stream = new ReadableStream({
-    async start(controller) {
-      const send = (data: object) => {
-        try {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
-        } catch {
-          // controller may already be closed
-        }
-      };
-
-      const heartbeat = setInterval(() => send({ status: "working" }), 5000);
-
-      try {
-        const briefData = await generateBrandBrief(business as Business);
-
-        const { data: existingBriefs } = await supabase
-          .from("brand_briefs")
-          .select("version")
-          .eq("business_id", businessId)
-          .order("version", { ascending: false })
-          .limit(1);
-
-        const nextVersion = (existingBriefs?.[0]?.version || 0) + 1;
-
-        const { data: brief, error } = await supabase
-          .from("brand_briefs")
-          .insert({
-            business_id: businessId,
-            version: nextVersion,
-            brief_data: briefData,
-            status: "draft",
-          })
-          .select()
-          .single();
-
-        if (error) throw error;
-
-        await supabase.from("action_logs").insert({
-          business_id: businessId,
-          actor: "agent",
-          action_type: "generate_brand_brief",
-          description: `Generated brand brief v${nextVersion}`,
-        });
-
-        clearInterval(heartbeat);
-        send({ status: "done", brief });
-        controller.close();
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        console.error("Brand research error:", message);
-        clearInterval(heartbeat);
-        send({ status: "error", error: `Failed to generate brand brief: ${message}` });
-        controller.close();
-      }
-    },
-  });
-
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      "Connection": "keep-alive",
-    },
-  });
 }
 
 export async function PATCH(request: Request) {

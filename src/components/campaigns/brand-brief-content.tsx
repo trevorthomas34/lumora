@@ -44,29 +44,9 @@ export function BrandBriefContent({ business, brandBrief }: BrandBriefContentPro
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ businessId: business.id }),
       });
-      if (!res.ok || !res.body) {
-        throw new Error(`Server error ${res.status}`);
-      }
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          const data = JSON.parse(line.slice(6));
-          if (data.status === "done") {
-            router.refresh();
-            return;
-          }
-          if (data.status === "error") {
-            throw new Error(data.error);
-          }
-        }
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `Server error ${res.status}`);
       }
       router.refresh();
     } catch (err) {

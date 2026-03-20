@@ -3,4 +3,4 @@
   publish = ".next"
 
 [functions."___netlify-server-handler"]
-  timeout = 60
+  timeout = 120

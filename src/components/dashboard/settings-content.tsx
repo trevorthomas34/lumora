@@ -204,28 +204,11 @@ export function SettingsContent({ business, connections }: SettingsContentProps)
 
       if (andRegenerate) {
         setRegenerating(true);
-        const res = await fetch("/api/brand-research", {
+        await fetch("/api/brand-research", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ businessId: business.id }),
         });
-        if (res.ok && res.body) {
-          const reader = res.body.getReader();
-          const decoder = new TextDecoder();
-          let buffer = "";
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split("\n");
-            buffer = lines.pop() ?? "";
-            for (const line of lines) {
-              if (!line.startsWith("data: ")) continue;
-              const data = JSON.parse(line.slice(6));
-              if (data.status === "done" || data.status === "error") break;
-            }
-          }
-        }
         setRegenerating(false);
         router.push("/brand-brief");
         return;
