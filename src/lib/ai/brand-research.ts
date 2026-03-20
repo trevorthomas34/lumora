@@ -8,7 +8,7 @@ export async function scrapeWebsite(url: string): Promise<string> {
     const normalizedUrl = url.startsWith('http') ? url : `https://${url}`;
     const response = await fetch(normalizedUrl, {
       headers: { 'User-Agent': 'LumoraAI Bot/1.0' },
-      signal: AbortSignal.timeout(5000),
+      signal: AbortSignal.timeout(2000),
     });
     const html = await response.text();
     const $ = cheerio.load(html);
@@ -55,8 +55,8 @@ export async function generateBrandBrief(business: Business): Promise<BrandBrief
   });
 
   const message = await client.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 2500,
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 2000,
     system: BRAND_RESEARCH_SYSTEM_PROMPT,
     messages: [{ role: 'user', content: prompt }],
   });
