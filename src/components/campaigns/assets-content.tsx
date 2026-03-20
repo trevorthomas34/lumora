@@ -196,7 +196,7 @@ export function AssetsContent({ businessId, assets, driveConnected, websiteUrl }
   const handleBulkDelete = async () => {
     if (!deleteSelection.size) return;
     setBulkDeleting(true);
-    for (const assetId of deleteSelection) {
+    for (const assetId of Array.from(deleteSelection)) {
       await fetch("/api/assets/delete", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
