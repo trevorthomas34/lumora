@@ -41,11 +41,10 @@ interface AssetsContentProps {
   websiteUrl: string | null;
 }
 
-export function AssetsContent({ businessId, assets: initialAssets, driveConnected, websiteUrl }: AssetsContentProps) {
-  const [assets, setAssets] = useState<CreativeAsset[]>(initialAssets);
+export function AssetsContent({ businessId, assets, driveConnected, websiteUrl }: AssetsContentProps) {
   const [loading, setLoading] = useState(false);
   const [selectedAssets, setSelectedAssets] = useState<Set<string>>(
-    new Set(initialAssets.filter((a) => a.selected).map((a) => a.id))
+    new Set(assets.filter((a) => a.selected).map((a) => a.id))
   );
 
   // Folder picker state
@@ -188,11 +187,10 @@ export function AssetsContent({ businessId, assets: initialAssets, driveConnecte
       setUploadProgress({ done: i + 1, total: files.length });
     }
 
-    setAssets((prev) => [...newAssets, ...prev]);
     setUploading(false);
     setUploadProgress(null);
-    // Reset input so same file can be re-uploaded
     e.target.value = "";
+    router.refresh(); // sync with server to confirm uploads landed
   };
 
   // ── Website Scrape ────────────────────────────────────────────────────────
@@ -262,17 +260,18 @@ export function AssetsContent({ businessId, assets: initialAssets, driveConnecte
     );
   }
 
-  if (uploading && uploadProgress) {
-    return (
-      <div className="flex items-center justify-center h-[60vh]">
-        <Loader size="lg" text={`Uploading ${uploadProgress.done} / ${uploadProgress.total}...`} />
-      </div>
-    );
-  }
 
   return (
     <>
       <div className="space-y-6">
+        {/* Upload progress banner */}
+        {uploading && uploadProgress && (
+          <div className="flex items-center gap-3 px-4 py-2.5 rounded-lg bg-primary/10 border border-primary/20 text-sm">
+            <RefreshCw className="h-4 w-4 animate-spin text-primary shrink-0" />
+            <span>Uploading {uploadProgress.done} of {uploadProgress.total} file{uploadProgress.total !== 1 ? "s" : ""}…</span>
+          </div>
+        )}
+
         {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>

@@ -39,6 +39,6 @@ export class RealDriveAdapter implements DriveAdapter {
   }
 
   async getThumbnailUrl(fileId: string): Promise<string> {
-    return `https://drive.google.com/thumbnail?id=${fileId}&sz=w200`;
+    return `https://drive.google.com/thumbnail?id=${fileId}&sz=w800`;
   }
 }
