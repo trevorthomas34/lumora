@@ -97,6 +97,15 @@ export async function GET(request: Request) {
         }
       }
 
+      // Check lazy-load attributes before src — lazy loaders put real URL here
+      const lazyMatch = attrs.match(/data-(?:src|lazy|lazy-src|original|full-url|large-file-src|srcset)=["']([^"']+)["']/i);
+      if (lazyMatch) {
+        const val = lazyMatch[1];
+        // Could be a srcset string or a plain URL
+        const url = resolveUrl(val.includes(" ") ? (bestFromSrcset(val) || val) : val);
+        if (url) { addImage(url, alt); continue; }
+      }
+
       const srcMatch = attrs.match(/src=["']([^"']+)["']/i);
       if (srcMatch) {
         const url = resolveUrl(srcMatch[1]);
