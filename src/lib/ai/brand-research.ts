@@ -56,7 +56,7 @@ export async function generateBrandBrief(business: Business): Promise<BrandBrief
 
   const message = await client.messages.create({
     model: 'claude-haiku-4-5-20251001',
-    max_tokens: 2000,
+    max_tokens: 3000,
     system: BRAND_RESEARCH_SYSTEM_PROMPT,
     messages: [{ role: 'user', content: prompt }],
   });
