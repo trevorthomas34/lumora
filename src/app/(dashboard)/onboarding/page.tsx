@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { BUSINESS_GOALS, BRAND_TONES, LOCATION_PRESETS, US_STATE_PRESETS, AGE_RANGES, GENDER_OPTIONS } from "@/lib/constants";
+import { BUSINESS_GOALS, BRAND_TONES, LOCATION_PRESETS, US_STATE_PRESETS, US_CITIES_PRESETS, AGE_RANGES, GENDER_OPTIONS } from "@/lib/constants";
 import { isDemoMode } from "@/lib/utils";
 import { ArrowLeft, ArrowRight, Sparkles, Loader2, AlertTriangle, X, Rocket, Plus, MapPin } from "lucide-react";
 import { getOAuthError } from "@/lib/oauth/errors";
@@ -105,23 +105,31 @@ export default function OnboardingPage() {
     setLocationInput(val);
     if (val.length >= 2) {
       const lower = val.toLowerCase();
-      const matches = (US_STATE_PRESETS as readonly string[])
-        .filter(s => s.toLowerCase().startsWith(lower) && !formData.target_locations.includes(s))
-        .slice(0, 5);
-      setLocationSuggestions(matches);
+      const stateMatches = (US_STATE_PRESETS as readonly string[])
+        .filter(s => s.toLowerCase().startsWith(lower) && !formData.target_locations.includes(s));
+      const cityMatches = (US_CITIES_PRESETS as readonly string[])
+        .filter(s => s.toLowerCase().startsWith(lower) && !formData.target_locations.includes(s));
+      setLocationSuggestions([...stateMatches, ...cityMatches].slice(0, 6));
     } else {
       setLocationSuggestions([]);
     }
   };
 
+  const findCanonicalLocation = (val: string): string | null => {
+    const lower = val.toLowerCase();
+    return [...LOCATION_PRESETS, ...US_STATE_PRESETS, ...US_CITIES_PRESETS].find(
+      (l) => l.toLowerCase() === lower
+    ) ?? null;
+  };
+
   const addLocation = (loc: string) => {
-    const trimmed = loc.trim();
-    if (!trimmed) return;
+    const canonical = findCanonicalLocation(loc);
+    if (!canonical) return;
     setFormData((prev) => ({
       ...prev,
-      target_locations: prev.target_locations.includes(trimmed)
+      target_locations: prev.target_locations.includes(canonical)
         ? prev.target_locations
-        : [...prev.target_locations, trimmed],
+        : [...prev.target_locations, canonical],
     }));
     setLocationInput("");
     setLocationSuggestions([]);
@@ -301,17 +309,14 @@ export default function OnboardingPage() {
                 <div className="relative pt-1">
                   <div className="flex gap-2">
                     <Input
-                      placeholder="Type a US state or custom location"
+                      placeholder="Search US states or cities..."
                       value={locationInput}
                       onChange={(e) => handleLocationInput(e.target.value)}
                       onKeyDown={(e) => {
                         if (e.key === "Enter") {
                           e.preventDefault();
-                          if (locationSuggestions.length > 0) {
-                            addLocation(locationSuggestions[0]);
-                          } else {
-                            addLocation(locationInput);
-                          }
+                          if (locationSuggestions.length > 0) addLocation(locationSuggestions[0]);
+                          else if (findCanonicalLocation(locationInput)) addLocation(locationInput);
                         }
                         if (e.key === "Escape") setLocationSuggestions([]);
                       }}
@@ -321,7 +326,7 @@ export default function OnboardingPage() {
                       variant="outline"
                       size="sm"
                       onClick={() => addLocation(locationInput)}
-                      disabled={!locationInput.trim()}
+                      disabled={!findCanonicalLocation(locationInput)}
                     >
                       Add
                     </Button>

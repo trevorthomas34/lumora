@@ -61,6 +61,26 @@ export const US_STATE_PRESETS = [
   'West Virginia', 'Wisconsin', 'Wyoming',
 ] as const;
 
+export const US_CITIES_PRESETS = [
+  'New York City', 'Los Angeles', 'Chicago', 'Houston', 'Phoenix',
+  'Philadelphia', 'San Antonio', 'San Diego', 'Dallas', 'San Jose',
+  'Austin', 'Jacksonville', 'Fort Worth', 'Columbus', 'Charlotte',
+  'Indianapolis', 'San Francisco', 'Seattle', 'Denver', 'Nashville',
+  'Oklahoma City', 'El Paso', 'Washington D.C.', 'Boston', 'Las Vegas',
+  'Memphis', 'Louisville', 'Portland', 'Baltimore', 'Milwaukee',
+  'Albuquerque', 'Tucson', 'Fresno', 'Sacramento', 'Atlanta',
+  'Kansas City', 'Omaha', 'Colorado Springs', 'Raleigh', 'Long Beach',
+  'Virginia Beach', 'Minneapolis', 'Tampa', 'New Orleans', 'Arlington',
+  'Honolulu', 'Anaheim', 'Aurora', 'Corpus Christi', 'Riverside',
+  'Lexington', 'St. Louis', 'Pittsburgh', 'Cincinnati', 'St. Paul',
+  'Buffalo', 'Orlando', 'Baton Rouge', 'Reno', 'Durham', 'Madison',
+  'Birmingham', 'Boise', 'Richmond', 'Spokane', 'Des Moines',
+  'Scottsdale', 'Chandler', 'Fremont', 'Gilbert', 'San Bernardino',
+  'Rochester', 'Norfolk', 'Miami', 'Detroit', 'Cleveland', 'Irvine',
+  'Anchorage', 'Jersey City', 'Plano', 'Henderson', 'Lincoln',
+  'Greensboro', 'St. Petersburg', 'Newark', 'Chula Vista', 'Laredo',
+] as const;
+
 export const GUARDRAILS = {
   MAX_DAILY_BUDGET_INCREASE_PERCENT: 20,
   MAX_SINGLE_CHANGE_PERCENT: 30,

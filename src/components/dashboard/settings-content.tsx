@@ -13,7 +13,7 @@ import { isDemoMode } from "@/lib/utils";
 import type { Business, Connection } from "@/types";
 import { Save, Link2, Unlink, Sparkles, Loader2, X, AlertTriangle, Plus, RefreshCw } from "lucide-react";
 import { getOAuthError } from "@/lib/oauth/errors";
-import { BUSINESS_GOALS, BRAND_TONES, LOCATION_PRESETS, US_STATE_PRESETS, AGE_RANGES, GENDER_OPTIONS } from "@/lib/constants";
+import { BUSINESS_GOALS, BRAND_TONES, LOCATION_PRESETS, US_STATE_PRESETS, US_CITIES_PRESETS, AGE_RANGES, GENDER_OPTIONS } from "@/lib/constants";
 
 type Competitor = { name: string; url: string };
 
@@ -27,7 +27,28 @@ interface SettingsContentProps {
   connections: Pick<Connection, "id" | "platform" | "status" | "platform_account_id" | "platform_account_name" | "pixel_id" | "updated_at">[];
 }
 
+const TABS = [
+  { id: "general", label: "General" },
+  { id: "brand", label: "Brand Profile" },
+  { id: "integrations", label: "Integrations" },
+  { id: "guardrails", label: "Guardrails" },
+] as const;
+
+type Tab = typeof TABS[number]["id"];
+
+const ALL_VALID_LOCATIONS = new Set(
+  [...LOCATION_PRESETS, ...US_STATE_PRESETS, ...US_CITIES_PRESETS].map((l) => l.toLowerCase())
+);
+
+function findCanonicalLocation(val: string): string | null {
+  const lower = val.toLowerCase();
+  return [...LOCATION_PRESETS, ...US_STATE_PRESETS, ...US_CITIES_PRESETS].find(
+    (l) => l.toLowerCase() === lower
+  ) ?? null;
+}
+
 export function SettingsContent({ business, connections }: SettingsContentProps) {
+  const [activeTab, setActiveTab] = useState<Tab>("general");
   const [saving, setSaving] = useState(false);
   const [connecting, setConnecting] = useState<string | null>(null);
   const [disconnecting, setDisconnecting] = useState<string | null>(null);
@@ -140,22 +161,25 @@ export function SettingsContent({ business, connections }: SettingsContentProps)
     setLocationInput(val);
     if (val.length >= 2) {
       const lower = val.toLowerCase();
-      const matches = (US_STATE_PRESETS as readonly string[])
-        .filter(s => s.toLowerCase().startsWith(lower) && !targetLocations.includes(s))
-        .slice(0, 5);
-      setLocationSuggestions(matches);
+      const stateMatches = (US_STATE_PRESETS as readonly string[])
+        .filter(s => s.toLowerCase().startsWith(lower) && !targetLocations.includes(s));
+      const cityMatches = (US_CITIES_PRESETS as readonly string[])
+        .filter(s => s.toLowerCase().startsWith(lower) && !targetLocations.includes(s));
+      setLocationSuggestions([...stateMatches, ...cityMatches].slice(0, 6));
     } else {
       setLocationSuggestions([]);
     }
   };
 
   const addLocation = (loc: string) => {
-    const trimmed = loc.trim();
-    if (!trimmed) return;
-    setTargetLocations(prev => prev.includes(trimmed) ? prev : [...prev, trimmed]);
+    const canonical = findCanonicalLocation(loc);
+    if (!canonical) return;
+    setTargetLocations(prev => prev.includes(canonical) ? prev : [...prev, canonical]);
     setLocationInput("");
     setLocationSuggestions([]);
   };
+
+  const isLocationInputValid = ALL_VALID_LOCATIONS.has(locationInput.trim().toLowerCase());
 
   const handleSaveProfile = async (andRegenerate = false) => {
     setSavingProfile(true);
@@ -180,11 +204,28 @@ export function SettingsContent({ business, connections }: SettingsContentProps)
 
       if (andRegenerate) {
         setRegenerating(true);
-        await fetch("/api/brand-research", {
+        const res = await fetch("/api/brand-research", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ businessId: business.id }),
         });
+        if (res.ok && res.body) {
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = "";
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop() ?? "";
+            for (const line of lines) {
+              if (!line.startsWith("data: ")) continue;
+              const data = JSON.parse(line.slice(6));
+              if (data.status === "done" || data.status === "error") break;
+            }
+          }
+        }
         setRegenerating(false);
         router.push("/brand-brief");
         return;
@@ -310,388 +351,363 @@ export function SettingsContent({ business, connections }: SettingsContentProps)
         </Card>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Business Settings</CardTitle>
-          <CardDescription>Update your business information and budget limits.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="name">Business Name</Label>
-            <Input id="name" value={name} onChange={(e) => setName(e.target.value)} />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
+      {/* Tab navigation */}
+      <div className="flex border-b border-border">
+        {TABS.map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
+              activeTab === tab.id
+                ? "border-primary text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* General tab */}
+      {activeTab === "general" && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Business Settings</CardTitle>
+            <CardDescription>Update your business name and budget limits.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="daily">Daily Budget Cap ($)</Label>
-              <Input id="daily" type="number" value={dailyBudget} onChange={(e) => setDailyBudget(e.target.value)} />
+              <Label htmlFor="name">Business Name</Label>
+              <Input id="name" value={name} onChange={(e) => setName(e.target.value)} />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="monthly">Monthly Budget Cap ($)</Label>
-              <Input id="monthly" type="number" value={monthlyBudget} onChange={(e) => setMonthlyBudget(e.target.value)} />
-            </div>
-          </div>
-          <Button onClick={handleSave} disabled={saving} variant="lumora">
-            <Save className="mr-2 h-4 w-4" />
-            {saving ? "Saving..." : "Save Changes"}
-          </Button>
-        </CardContent>
-      </Card>
-
-      {/* Brand Profile */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Brand Profile</CardTitle>
-          <CardDescription>Edit your targeting and brand info. Changes here affect future brand brief generation.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-5">
-          {/* Website + Offer */}
-          <div className="space-y-2">
-            <Label htmlFor="bp-website">Website URL</Label>
-            <Input id="bp-website" placeholder="https://acme.com" value={websiteUrl} onChange={e => setWebsiteUrl(e.target.value)} />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="bp-offer">What do you sell or offer?</Label>
-            <Textarea id="bp-offer" rows={2} placeholder="Describe your main product or service..." value={offerDescription} onChange={e => setOfferDescription(e.target.value)} />
-          </div>
-
-          {/* Goal */}
-          <div className="space-y-2">
-            <Label>Primary Goal</Label>
-            <div className="grid grid-cols-2 gap-2">
-              {BUSINESS_GOALS.map(g => (
-                <button key={g.value} type="button" onClick={() => setGoal(goal === g.value ? "" : g.value)}
-                  className={`p-3 rounded-lg border text-left text-sm transition-colors ${goal === g.value ? "border-primary bg-primary/10" : "border-border hover:border-primary/50"}`}>
-                  <p className="font-medium">{g.label}</p>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Locations */}
-          <div className="space-y-2">
-            <Label>Target Locations</Label>
-            <div className="flex flex-wrap gap-2">
-              {(LOCATION_PRESETS as readonly string[]).map(loc => {
-                const selected = targetLocations.includes(loc);
-                return (
-                  <button key={loc} type="button" onClick={() => selected ? setTargetLocations(p => p.filter(l => l !== loc)) : addLocation(loc)}
-                    className={`px-3 py-1.5 rounded-full border text-sm transition-colors ${selected ? "border-primary bg-primary/10 text-primary" : "border-border hover:border-primary/50"}`}>
-                    {loc}
-                  </button>
-                );
-              })}
-            </div>
-            <div className="relative">
-              <div className="flex gap-2">
-                <Input placeholder="Type a US state or custom location" value={locationInput}
-                  onChange={e => handleLocationInput(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === "Enter") { e.preventDefault(); if (locationSuggestions.length > 0) { addLocation(locationSuggestions[0]); } else { addLocation(locationInput); } }
-                    if (e.key === "Escape") setLocationSuggestions([]);
-                  }} />
-                <Button type="button" variant="outline" size="sm" onClick={() => addLocation(locationInput)} disabled={!locationInput.trim()}>Add</Button>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="daily">Daily Budget Cap ($)</Label>
+                <Input id="daily" type="number" value={dailyBudget} onChange={(e) => setDailyBudget(e.target.value)} />
               </div>
-              {locationSuggestions.length > 0 && (
-                <div className="absolute z-10 w-full mt-1 bg-card border border-border rounded-md shadow-lg overflow-hidden">
-                  {locationSuggestions.map(s => (
-                    <button key={s} type="button" className="w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors"
-                      onMouseDown={e => { e.preventDefault(); addLocation(s); }}>{s}</button>
+              <div className="space-y-2">
+                <Label htmlFor="monthly">Monthly Budget Cap ($)</Label>
+                <Input id="monthly" type="number" value={monthlyBudget} onChange={(e) => setMonthlyBudget(e.target.value)} />
+              </div>
+            </div>
+            <Button onClick={handleSave} disabled={saving} variant="lumora">
+              <Save className="mr-2 h-4 w-4" />
+              {saving ? "Saving..." : "Save Changes"}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Brand Profile tab */}
+      {activeTab === "brand" && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Brand Profile</CardTitle>
+            <CardDescription>Edit your targeting and brand info. Changes here affect future brand brief generation.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="space-y-2">
+              <Label htmlFor="bp-website">Website URL</Label>
+              <Input id="bp-website" placeholder="https://acme.com" value={websiteUrl} onChange={e => setWebsiteUrl(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="bp-offer">What do you sell or offer?</Label>
+              <Textarea id="bp-offer" rows={2} placeholder="Describe your main product or service..." value={offerDescription} onChange={e => setOfferDescription(e.target.value)} />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Primary Goal</Label>
+              <div className="grid grid-cols-2 gap-2">
+                {BUSINESS_GOALS.map(g => (
+                  <button key={g.value} type="button" onClick={() => setGoal(goal === g.value ? "" : g.value)}
+                    className={`p-3 rounded-lg border text-left text-sm transition-colors ${goal === g.value ? "border-primary bg-primary/10" : "border-border hover:border-primary/50"}`}>
+                    <p className="font-medium">{g.label}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Locations */}
+            <div className="space-y-2">
+              <Label>Target Locations</Label>
+              <div className="flex flex-wrap gap-2">
+                {(LOCATION_PRESETS as readonly string[]).map(loc => {
+                  const selected = targetLocations.includes(loc);
+                  return (
+                    <button key={loc} type="button" onClick={() => selected ? setTargetLocations(p => p.filter(l => l !== loc)) : addLocation(loc)}
+                      className={`px-3 py-1.5 rounded-full border text-sm transition-colors ${selected ? "border-primary bg-primary/10 text-primary" : "border-border hover:border-primary/50"}`}>
+                      {loc}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="relative">
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="Search US states or cities..."
+                    value={locationInput}
+                    onChange={e => handleLocationInput(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        if (locationSuggestions.length > 0) addLocation(locationSuggestions[0]);
+                        else if (isLocationInputValid) addLocation(locationInput);
+                      }
+                      if (e.key === "Escape") setLocationSuggestions([]);
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => addLocation(locationInput)}
+                    disabled={!isLocationInputValid}
+                  >
+                    Add
+                  </Button>
+                </div>
+                {locationSuggestions.length > 0 && (
+                  <div className="absolute z-10 w-full mt-1 bg-card border border-border rounded-md shadow-lg overflow-hidden">
+                    {locationSuggestions.map(s => (
+                      <button key={s} type="button" className="w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors"
+                        onMouseDown={e => { e.preventDefault(); addLocation(s); }}>{s}</button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              {targetLocations.filter(l => !(LOCATION_PRESETS as readonly string[]).includes(l)).length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {targetLocations.filter(l => !(LOCATION_PRESETS as readonly string[]).includes(l)).map(loc => (
+                    <span key={loc} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-muted text-sm border border-border">
+                      {loc}
+                      <button type="button" onClick={() => setTargetLocations(p => p.filter(l => l !== loc))} className="text-muted-foreground hover:text-foreground ml-0.5">
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
                   ))}
                 </div>
               )}
             </div>
-            {targetLocations.filter(l => !(LOCATION_PRESETS as readonly string[]).includes(l)).length > 0 && (
-              <div className="flex flex-wrap gap-1.5">
-                {targetLocations.filter(l => !(LOCATION_PRESETS as readonly string[]).includes(l)).map(loc => (
-                  <span key={loc} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-muted text-sm border border-border">
-                    {loc}
-                    <button type="button" onClick={() => setTargetLocations(p => p.filter(l => l !== loc))} className="text-muted-foreground hover:text-foreground ml-0.5">
-                      <X className="h-3 w-3" />
+
+            <div className="space-y-2">
+              <Label>Age Range</Label>
+              <div className="flex flex-wrap gap-2">
+                {AGE_RANGES.map(range => {
+                  const selected = targetAgeRanges.includes(range);
+                  return (
+                    <button key={range} type="button"
+                      onClick={() => setTargetAgeRanges(prev => selected ? prev.filter(r => r !== range) : [...prev, range])}
+                      className={`px-3 py-1.5 rounded-full border text-sm transition-colors ${selected ? "border-primary bg-primary/10 text-primary" : "border-border hover:border-primary/50"}`}>
+                      {range}
                     </button>
-                  </span>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Gender</Label>
+              <div className="flex flex-wrap gap-2">
+                {GENDER_OPTIONS.map(opt => (
+                  <button key={opt.value} type="button"
+                    onClick={() => setTargetGender(targetGender === opt.value ? "" : opt.value)}
+                    className={`px-3 py-1.5 rounded-full border text-sm transition-colors ${targetGender === opt.value ? "border-primary bg-primary/10 text-primary" : "border-border hover:border-primary/50"}`}>
+                    {opt.label}
+                  </button>
                 ))}
               </div>
-            )}
-          </div>
-
-          {/* Age Range */}
-          <div className="space-y-2">
-            <Label>Age Range</Label>
-            <div className="flex flex-wrap gap-2">
-              {AGE_RANGES.map(range => {
-                const selected = targetAgeRanges.includes(range);
-                return (
-                  <button key={range} type="button"
-                    onClick={() => setTargetAgeRanges(prev => selected ? prev.filter(r => r !== range) : [...prev, range])}
-                    className={`px-3 py-1.5 rounded-full border text-sm transition-colors ${selected ? "border-primary bg-primary/10 text-primary" : "border-border hover:border-primary/50"}`}>
-                    {range}
-                  </button>
-                );
-              })}
             </div>
-          </div>
 
-          {/* Gender */}
-          <div className="space-y-2">
-            <Label>Gender</Label>
-            <div className="flex flex-wrap gap-2">
-              {GENDER_OPTIONS.map(opt => (
-                <button key={opt.value} type="button"
-                  onClick={() => setTargetGender(targetGender === opt.value ? "" : opt.value)}
-                  className={`px-3 py-1.5 rounded-full border text-sm transition-colors ${targetGender === opt.value ? "border-primary bg-primary/10 text-primary" : "border-border hover:border-primary/50"}`}>
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Ideal customer */}
-          <div className="space-y-2">
-            <Label htmlFor="bp-customer">Ideal Customer</Label>
-            <Textarea id="bp-customer" rows={2} placeholder="e.g. First-time homeowners, small business owners..." value={targetCustomerDescription} onChange={e => setTargetCustomerDescription(e.target.value)} />
-          </div>
-
-          {/* Tone */}
-          <div className="space-y-2">
-            <Label>Tone</Label>
-            <div className="flex flex-wrap gap-2">
-              {BRAND_TONES.map(tone => {
-                const selected = selectedTones.includes(tone);
-                return (
-                  <button key={tone} type="button"
-                    onClick={() => setSelectedTones(prev => selected ? prev.filter(t => t !== tone) : [...prev, tone])}
-                    className={`px-3 py-1.5 rounded-full border text-sm transition-colors ${selected ? "border-primary bg-primary/10 text-primary" : "border-border hover:border-primary/50"}`}>
-                    {tone}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Brand voice notes */}
-          <div className="space-y-2">
-            <Label htmlFor="bp-voice">Brand Voice Notes</Label>
-            <Textarea id="bp-voice" rows={2} placeholder="Any specific tone or style guidelines..." value={brandVoice} onChange={e => setBrandVoice(e.target.value)} />
-          </div>
-
-          {/* Competitors */}
-          <div className="space-y-2">
-            <Label>Competitors</Label>
             <div className="space-y-2">
-              {competitors.map((comp, index) => (
-                <div key={index} className="flex gap-2 items-start">
-                  <div className="grid grid-cols-2 gap-2 flex-1">
-                    <Input placeholder="Competitor name" value={comp.name} onChange={e => setCompetitors(prev => prev.map((c, i) => i === index ? { ...c, name: e.target.value } : c))} />
-                    <Input placeholder="https://competitor.com" value={comp.url} onChange={e => setCompetitors(prev => prev.map((c, i) => i === index ? { ...c, url: e.target.value } : c))} />
-                  </div>
-                  {competitors.length > 1 && (
-                    <Button type="button" variant="ghost" size="sm" className="shrink-0 h-9 w-9 p-0" onClick={() => setCompetitors(prev => prev.filter((_, i) => i !== index))}>
-                      <X className="h-4 w-4" />
-                    </Button>
-                  )}
-                </div>
-              ))}
+              <Label htmlFor="bp-customer">Ideal Customer</Label>
+              <Textarea id="bp-customer" rows={2} placeholder="e.g. First-time homeowners, small business owners..." value={targetCustomerDescription} onChange={e => setTargetCustomerDescription(e.target.value)} />
             </div>
-            {competitors.length < 5 && (
-              <Button type="button" variant="ghost" size="sm" className="text-muted-foreground" onClick={() => setCompetitors(prev => [...prev, { name: "", url: "" }])}>
-                <Plus className="mr-1.5 h-4 w-4" /> Add competitor
-              </Button>
-            )}
-          </div>
 
-          <div className="flex gap-3 pt-2">
-            <Button onClick={() => handleSaveProfile(false)} disabled={savingProfile || regenerating} variant="outline">
-              <Save className="mr-2 h-4 w-4" />
-              {savingProfile && !regenerating ? "Saving..." : profileSaved ? "Saved!" : "Save"}
-            </Button>
-            <Button onClick={() => handleSaveProfile(true)} disabled={savingProfile || regenerating} variant="lumora">
-              <RefreshCw className={`mr-2 h-4 w-4 ${regenerating ? "animate-spin" : ""}`} />
-              {regenerating ? "Regenerating..." : "Save & Regenerate Brief"}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+            <div className="space-y-2">
+              <Label>Tone</Label>
+              <div className="flex flex-wrap gap-2">
+                {BRAND_TONES.map(tone => {
+                  const selected = selectedTones.includes(tone);
+                  return (
+                    <button key={tone} type="button"
+                      onClick={() => setSelectedTones(prev => selected ? prev.filter(t => t !== tone) : [...prev, tone])}
+                      className={`px-3 py-1.5 rounded-full border text-sm transition-colors ${selected ? "border-primary bg-primary/10 text-primary" : "border-border hover:border-primary/50"}`}>
+                      {tone}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Connected Accounts</CardTitle>
-          <CardDescription>Manage your ad platform connections.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {["meta", "google_ads", "google_drive"].map((platform) => {
-            const conn = connections.find((c) => c.platform === platform);
-            const isConnecting = connecting === platform;
-            const isDisconnecting = disconnecting === platform;
-            const isGoogleAds = platform === "google_ads";
-            return (
-              <div key={platform} className="p-3 rounded-lg border border-border space-y-2">
-                <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">{platformNames[platform] || platform}</p>
-                  {conn?.platform_account_name && (
-                    <p className="text-sm text-muted-foreground">{conn.platform_account_name}</p>
-                  )}
-                </div>
-                <div className="flex items-center gap-2">
-                  {conn?.status === "active" ? (
-                    <>
-                      <Badge variant="success">Connected</Badge>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDisconnect(platform)}
-                        disabled={isDisconnecting || isDemoMode()}
-                      >
-                        {isDisconnecting ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Unlink className="h-4 w-4" />
-                        )}
-                      </Button>
-                    </>
-                  ) : conn?.status === "expired" || conn?.status === "revoked" ? (
-                    <>
-                      <Badge variant={conn.status === "expired" ? "warning" : "destructive"}>
-                        {conn.status === "expired" ? "Expired" : "Revoked"}
-                      </Badge>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleConnect(platform)}
-                        disabled={isConnecting || isDemoMode()}
-                      >
-                        {isConnecting ? (
-                          <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                        ) : (
-                          <Link2 className="mr-1 h-4 w-4" />
-                        )}
-                        Reconnect
-                      </Button>
-                    </>
-                  ) : isGoogleAds ? (
-                    <Button variant="outline" size="sm" disabled>
-                      Coming Soon
-                    </Button>
-                  ) : (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleConnect(platform)}
-                      disabled={isConnecting || isDemoMode()}
-                    >
-                      {isConnecting ? (
-                        <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                      ) : (
-                        <Link2 className="mr-1 h-4 w-4" />
-                      )}
-                      {isConnecting ? "Connecting..." : "Connect"}
-                    </Button>
-                  )}
-                </div>
-                </div>
+            <div className="space-y-2">
+              <Label htmlFor="bp-voice">Brand Voice Notes</Label>
+              <Textarea id="bp-voice" rows={2} placeholder="Any specific tone or style guidelines..." value={brandVoice} onChange={e => setBrandVoice(e.target.value)} />
+            </div>
 
-                {/* Ad account picker — only for Meta when connected */}
-                {platform === "meta" && conn?.status === "active" && (
-                  <div className="pt-1 space-y-3">
-                    {adAccounts === null ? (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-xs text-muted-foreground h-auto py-1 px-2"
-                        onClick={handleLoadAdAccounts}
-                        disabled={loadingAdAccounts || isDemoMode()}
-                      >
-                        {loadingAdAccounts ? (
-                          <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                        ) : null}
-                        Change ad account
+            <div className="space-y-2">
+              <Label>Competitors</Label>
+              <div className="space-y-2">
+                {competitors.map((comp, index) => (
+                  <div key={index} className="flex gap-2 items-start">
+                    <div className="grid grid-cols-2 gap-2 flex-1">
+                      <Input placeholder="Competitor name" value={comp.name} onChange={e => setCompetitors(prev => prev.map((c, i) => i === index ? { ...c, name: e.target.value } : c))} />
+                      <Input placeholder="https://competitor.com" value={comp.url} onChange={e => setCompetitors(prev => prev.map((c, i) => i === index ? { ...c, url: e.target.value } : c))} />
+                    </div>
+                    {competitors.length > 1 && (
+                      <Button type="button" variant="ghost" size="sm" className="shrink-0 h-9 w-9 p-0" onClick={() => setCompetitors(prev => prev.filter((_, i) => i !== index))}>
+                        <X className="h-4 w-4" />
                       </Button>
-                    ) : (
-                      <div className="space-y-1">
-                        <p className="text-xs text-muted-foreground mb-1">Select ad account:</p>
-                        {adAccounts.map((account) => (
-                          <button
-                            key={account.id}
-                            onClick={() => handleSelectAdAccount(account)}
-                            disabled={savingAdAccount}
-                            className={`w-full text-left text-sm px-3 py-2 rounded-md border transition-colors ${
-                              conn.platform_account_id === account.id
-                                ? "border-primary bg-primary/10 text-primary"
-                                : "border-border hover:border-primary/50 hover:bg-muted/30"
-                            }`}
-                          >
-                            <span className="font-medium">{account.name}</span>
-                            <span className="text-xs text-muted-foreground ml-2">{account.id}</span>
-                          </button>
-                        ))}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="text-xs h-auto py-1 px-2"
-                          onClick={() => setAdAccounts(null)}
-                        >
-                          Cancel
-                        </Button>
-                      </div>
                     )}
+                  </div>
+                ))}
+              </div>
+              {competitors.length < 5 && (
+                <Button type="button" variant="ghost" size="sm" className="text-muted-foreground" onClick={() => setCompetitors(prev => [...prev, { name: "", url: "" }])}>
+                  <Plus className="mr-1.5 h-4 w-4" /> Add competitor
+                </Button>
+              )}
+            </div>
 
-                    {/* Meta Pixel ID */}
-                    <div className="space-y-1.5">
-                      <Label className="text-xs text-muted-foreground">Meta Pixel ID (optional)</Label>
-                      <div className="flex gap-2">
-                        <Input
-                          className="h-8 text-sm"
-                          placeholder="e.g. 1234567890123"
-                          value={pixelId}
-                          onChange={(e) => setPixelId(e.target.value)}
-                          disabled={isDemoMode()}
-                        />
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-8 shrink-0"
-                          onClick={handleSavePixelId}
-                          disabled={savingPixelId || isDemoMode()}
-                        >
-                          {savingPixelId ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+            <div className="flex gap-3 pt-2">
+              <Button onClick={() => handleSaveProfile(false)} disabled={savingProfile || regenerating} variant="outline">
+                <Save className="mr-2 h-4 w-4" />
+                {savingProfile && !regenerating ? "Saving..." : profileSaved ? "Saved!" : "Save"}
+              </Button>
+              <Button onClick={() => handleSaveProfile(true)} disabled={savingProfile || regenerating} variant="lumora">
+                <RefreshCw className={`mr-2 h-4 w-4 ${regenerating ? "animate-spin" : ""}`} />
+                {regenerating ? "Regenerating..." : "Save & Regenerate Brief"}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Integrations tab */}
+      {activeTab === "integrations" && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Connected Accounts</CardTitle>
+            <CardDescription>Manage your ad platform connections.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {["meta", "google_ads", "google_drive"].map((platform) => {
+              const conn = connections.find((c) => c.platform === platform);
+              const isConnecting = connecting === platform;
+              const isDisconnecting = disconnecting === platform;
+              const isGoogleAds = platform === "google_ads";
+              return (
+                <div key={platform} className="p-3 rounded-lg border border-border space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-medium">{platformNames[platform] || platform}</p>
+                      {conn?.platform_account_name && (
+                        <p className="text-sm text-muted-foreground">{conn.platform_account_name}</p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {conn?.status === "active" ? (
+                        <>
+                          <Badge variant="success">Connected</Badge>
+                          <Button variant="ghost" size="sm" onClick={() => handleDisconnect(platform)} disabled={isDisconnecting || isDemoMode()}>
+                            {isDisconnecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Unlink className="h-4 w-4" />}
+                          </Button>
+                        </>
+                      ) : conn?.status === "expired" || conn?.status === "revoked" ? (
+                        <>
+                          <Badge variant={conn.status === "expired" ? "warning" : "destructive"}>
+                            {conn.status === "expired" ? "Expired" : "Revoked"}
+                          </Badge>
+                          <Button variant="outline" size="sm" onClick={() => handleConnect(platform)} disabled={isConnecting || isDemoMode()}>
+                            {isConnecting ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Link2 className="mr-1 h-4 w-4" />}
+                            Reconnect
+                          </Button>
+                        </>
+                      ) : isGoogleAds ? (
+                        <Button variant="outline" size="sm" disabled>Coming Soon</Button>
+                      ) : (
+                        <Button variant="outline" size="sm" onClick={() => handleConnect(platform)} disabled={isConnecting || isDemoMode()}>
+                          {isConnecting ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Link2 className="mr-1 h-4 w-4" />}
+                          {isConnecting ? "Connecting..." : "Connect"}
                         </Button>
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        Required to use OUTCOME_SALES campaigns with conversion tracking.
-                      </p>
+                      )}
                     </div>
                   </div>
-                )}
-              </div>
-            );
-          })}
-        </CardContent>
-      </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Guardrails</CardTitle>
-          <CardDescription>Safety limits for automated campaign changes.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3 text-sm">
-          <div className="flex justify-between py-2 border-b border-border/50">
-            <span className="text-muted-foreground">Max daily budget increase</span>
-            <span>20% per change</span>
-          </div>
-          <div className="flex justify-between py-2 border-b border-border/50">
-            <span className="text-muted-foreground">Min time between changes</span>
-            <span>6 hours</span>
-          </div>
-          <div className="flex justify-between py-2 border-b border-border/50">
-            <span className="text-muted-foreground">Learning phase protection</span>
-            <span>72 hours</span>
-          </div>
-          <div className="flex justify-between py-2">
-            <span className="text-muted-foreground">Require approval for major changes</span>
-            <span className="text-primary">Enabled</span>
-          </div>
-        </CardContent>
-      </Card>
+                  {platform === "meta" && conn?.status === "active" && (
+                    <div className="pt-1 space-y-3">
+                      {adAccounts === null ? (
+                        <Button variant="ghost" size="sm" className="text-xs text-muted-foreground h-auto py-1 px-2"
+                          onClick={handleLoadAdAccounts} disabled={loadingAdAccounts || isDemoMode()}>
+                          {loadingAdAccounts ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
+                          Change ad account
+                        </Button>
+                      ) : (
+                        <div className="space-y-1">
+                          <p className="text-xs text-muted-foreground mb-1">Select ad account:</p>
+                          {adAccounts.map((account) => (
+                            <button key={account.id} onClick={() => handleSelectAdAccount(account)} disabled={savingAdAccount}
+                              className={`w-full text-left text-sm px-3 py-2 rounded-md border transition-colors ${
+                                conn.platform_account_id === account.id
+                                  ? "border-primary bg-primary/10 text-primary"
+                                  : "border-border hover:border-primary/50 hover:bg-muted/30"
+                              }`}>
+                              <span className="font-medium">{account.name}</span>
+                              <span className="text-xs text-muted-foreground ml-2">{account.id}</span>
+                            </button>
+                          ))}
+                          <Button variant="ghost" size="sm" className="text-xs h-auto py-1 px-2" onClick={() => setAdAccounts(null)}>Cancel</Button>
+                        </div>
+                      )}
+
+                      <div className="space-y-1.5">
+                        <Label className="text-xs text-muted-foreground">Meta Pixel ID (optional)</Label>
+                        <div className="flex gap-2">
+                          <Input className="h-8 text-sm" placeholder="e.g. 1234567890123" value={pixelId}
+                            onChange={(e) => setPixelId(e.target.value)} disabled={isDemoMode()} />
+                          <Button variant="outline" size="sm" className="h-8 shrink-0" onClick={handleSavePixelId} disabled={savingPixelId || isDemoMode()}>
+                            {savingPixelId ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+                          </Button>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          Required to use OUTCOME_SALES campaigns with conversion tracking.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Guardrails tab */}
+      {activeTab === "guardrails" && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Guardrails</CardTitle>
+            <CardDescription>Safety limits for automated campaign changes.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            <div className="flex justify-between py-2 border-b border-border/50">
+              <span className="text-muted-foreground">Max daily budget increase</span>
+              <span>20% per change</span>
+            </div>
+            <div className="flex justify-between py-2 border-b border-border/50">
+              <span className="text-muted-foreground">Min time between changes</span>
+              <span>6 hours</span>
+            </div>
+            <div className="flex justify-between py-2 border-b border-border/50">
+              <span className="text-muted-foreground">Learning phase protection</span>
+              <span>72 hours</span>
+            </div>
+            <div className="flex justify-between py-2">
+              <span className="text-muted-foreground">Require approval for major changes</span>
+              <span className="text-primary">Enabled</span>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
